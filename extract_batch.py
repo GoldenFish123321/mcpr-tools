@@ -368,7 +368,6 @@ if __name__ == '__main__':
     ver = nbt_tag.Compound()
     ver['Id'] = nbt_tag.Int(2586); ver['Name'] = nbt_tag.String('1.16.5'); ver['Snapshot'] = nbt_tag.Byte(0)
     data['Version'] = ver
-    data['DataVersion'] = nbt_tag.Int(2586)
     data['LevelName'] = nbt_tag.String('survival_world')
     data['GameType'] = nbt_tag.Int(3)
     data['generatorName'] = nbt_tag.String('flat')
