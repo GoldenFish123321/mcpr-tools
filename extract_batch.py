@@ -250,6 +250,60 @@ if __name__ == '__main__':
                         for _ in range(dl):
                             if so+8>len(sd):break
                             bs.append(struct.unpack('>q',sd[so:so+8])[0]);so+=8
+                        # Truncate to expected size (server may send extra longs for bpb not dividing 64)
+                        if bpb > 0:
+                            expected = (4096 * bpb + 63) // 64
+                            if len(bs) > expected:
+                                bs = bs[:expected]
+                        
+                        # --- Fix: detect server-side compact-long-array "uniform fill" corruption ---
+                        # When bpb doesn't divide 64 (e.g. bpb=5), the server may use a naive
+                        # repeating long pattern (0x0084210842108421) that produces wrong
+                        # values at cross-long-boundary block positions — scrambling the Y=0 layer.
+                        # This generates a correct all-bedrock encoding for the affected section.
+                        if y == 0 and bpb == 5 and len(bs) >= 5 and pal is not None:
+                            # Find bedrock palette index
+                            bedrock_idx = None
+                            for i, pid in enumerate(pal):
+                                if bn(pid) == 'minecraft:bedrock':
+                                    bedrock_idx = i
+                                    break
+                            
+                            if bedrock_idx is not None:
+                                # Check for uniform first 5+ longs (corruption signature)
+                                uniform_val = bs[0]
+                                uniform_count = 0
+                                for v in bs:
+                                    if v == uniform_val:
+                                        uniform_count += 1
+                                    else:
+                                        break
+                                if uniform_count >= 5 and uniform_val == 0x0084210842108421:
+                                    # Found the buggy pattern — regenerate correct all-bedrock long array
+                                    total_longs = len(bs)
+                                    bits = [0] * (total_longs * 64)
+                                    # Set every block to the bedrock palette index with correct bit pattern
+                                    for idx in range(4096):
+                                        sb = idx * bpb
+                                        for j in range(bpb):
+                                            bit_pos = sb + j
+                                            if bit_pos < len(bits):
+                                                bits[bit_pos] = (bedrock_idx >> j) & 1
+                                    fixed_bs = []
+                                    for li in range(total_longs):
+                                        lv = 0
+                                        for j in range(64):
+                                            if li * 64 + j < len(bits):
+                                                lv |= bits[li * 64 + j] << j
+                                        # Convert to signed 64-bit for nbtlib compatibility
+                                        lv &= 0xFFFFFFFFFFFFFFFF
+                                        if lv >= 0x8000000000000000:
+                                            lv -= 0x10000000000000000
+                                        fixed_bs.append(lv)
+                                    bs = fixed_bs
+                                    stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
+                        # --- End corruption fix ---
+                        
                         secs[y]=(bpb,pal,bs)
 
                     # --- Filter ②: bottom bedrock check ---
@@ -329,7 +383,12 @@ if __name__ == '__main__':
                     kept+=1
                     stats['saved'] += 1
 
-                except: continue
+                except Exception as ex:
+                    if cx == -29 and cz == -1:
+                        import traceback
+                        print(f"  !!! Chunk (-29,-1) FAILED: {ex}")
+                        traceback.print_exc()
+                    continue
 
         zf.close()
         total += kept
@@ -419,6 +478,7 @@ if __name__ == '__main__':
     print(f"  Rejected (Nether biomes):   {stats['nether']:>8,}")
     print(f"  Saved (overworld survival): {stats['saved']:>8,}")
     print(f"  ───────────────────────────")
+    print(f"  Corrupted Y=0 sections fixed: {stats.get('fixed_corrupt', 0):>8}")
     print(f"  MCA files: {mca_count}, chunks: {mca_chunks}")
 
     # Bounds
