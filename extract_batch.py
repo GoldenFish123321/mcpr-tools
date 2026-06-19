@@ -135,6 +135,26 @@ def rnbt(d,o=0):
     if t==0:return None,o
     r=NR(d,o-1);_,v,no=r.r();return v,no
 
+# Disk-format NBT reader for tile entities (2-byte string lengths, NOT VarInt)
+def _rs_disk(d, o):
+    l = struct.unpack('>H', d[o:o+2])[0]; o += 2
+    return d[o:o+l].decode('utf-8','replace'), o+l
+
+class NRD(NR):
+    def _p(s, t, o):
+        if t == 8:
+            v, o = _rs_disk(s.d, o)
+            return nbt_tag.String(v), o
+        return super()._p(t, o)
+
+def rnbt_disk(d, o=0):
+    if o >= len(d): return None, o
+    t = d[o]; o += 1
+    if t == 0: return None, o
+    r = NRD(d, o-1)
+    _, v, no = r.r()
+    return v, no
+
 # ============================================================
 # MCA writer
 # ============================================================
@@ -247,8 +267,8 @@ if __name__ == '__main__':
                     sd=payload[o:o+ds];o+=ds
 
                     bec,o=rv(payload,o);bes=[]
-                    for _ in range(bec):
-                        try: be,o=rnbt(payload,o)
+                    for ei in range(bec):
+                        try: be,o=rnbt_disk(payload,o)
                         except: continue
                         if be:bes.append(be)
 
