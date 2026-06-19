@@ -250,92 +250,48 @@ if __name__ == '__main__':
                         for _ in range(dl):
                             if so+8>len(sd):break
                             bs.append(struct.unpack('>q',sd[so:so+8])[0]);so+=8
-                        # Truncate to expected size (server may send extra longs for bpb not dividing 64)
-                        if bpb > 0:
+                        # Truncate to expected size (server may send extra longs)
+                        # EXCEPT for bpb=5, where server uses per-long encoding (12 blocks/long,
+                        # 4 unused bits) instead of standard compact-long-array. We convert below.
+                        if bpb > 0 and bpb != 5:
                             expected = (4096 * bpb + 63) // 64
                             if len(bs) > expected:
                                 bs = bs[:expected]
                         
-                        # --- Fix: bpb=5 compact-long-array boundary corruption ---
-                        # At bpb=5, 5 does not divide 64, so every 13th block crosses a
-                        # long boundary and gets wrong palette indices due to a server-side
-                        # encoding bug. Two cases:
-                        #  A) Uniform fill: all longs identical → replace with correct 5-long pattern
-                        #  B) Non-uniform: decode blocks, fix boundary blocks from neighbors, rebuild
+                        # --- Fix: bpb=5 per-long → standard compact-long-array conversion ---
+                        # The server encodes bpb=5 sections with 12 blocks per long (60 bits +
+                        # 4 unused padding), NOT the standard global-bit-position scheme.
+                        # This gives 342 longs instead of 320. We convert to standard format.
                         if bpb == 5 and len(bs) >= 5 and pal is not None:
-                            uniform_val = bs[0]
-                            uniform_count = 0
-                            for v in bs:
-                                if v == uniform_val: uniform_count += 1
-                                else: break
+                            ppb = 12  # blocks per long in server's per-long scheme
+                            # Step 1: decode all 4096 blocks using per-long scheme
+                            blocks = [0] * 4096
+                            for i in range(4096):
+                                long_idx = i // ppb
+                                bit_off = (i % ppb) * bpb
+                                if long_idx < len(bs):
+                                    blocks[i] = (bs[long_idx] >> bit_off) & 0x1F
                             
-                            if uniform_count >= 5 and uniform_val == 0x0084210842108421:
-                                # Case A: uniform fill — replace with correct 5-long rotating pattern
-                                def signed64(v):
-                                    v &= 0xFFFFFFFFFFFFFFFF
-                                    return v - 0x10000000000000000 if v >= 0x8000000000000000 else v
-                                correct = [signed64(0x1084210842108421), signed64(0x2108421084210842),
-                                           signed64(0x4210842108421084), signed64(0x8421084210842108),
-                                           signed64(0x0842108421084210)]
-                                for i in range(uniform_count):
-                                    bs[i] = correct[i % 5]
-                                stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
-                            else:
-                                # Case B: rebuild long array with boundary blocks fixed by neighbors
-                                # Applies to ALL non-uniform bpb=5 sections (not just overlong dl)
-                                # Cross-boundary blocks (every 13th at bpb=5) get wrong state data
-                                expected = (4096 * bpb + 63) // 64
-                                if len(bs) >= expected:
-                                    # Decode blocks
-                                    blocks = [0] * 4096
-                                    boundary_set = set()
-                                    for idx in range(4096):
-                                        sb = idx * bpb; sl2 = sb // 64; so2 = sb % 64
-                                        if so2 + bpb <= 64:
-                                            blocks[idx] = (bs[sl2] >> so2) & ((1 << bpb) - 1)
-                                        elif sl2 + 1 < expected:
-                                            boundary_set.add(idx)
-                                            bf = 64 - so2
-                                            blocks[idx] = ((bs[sl2] >> so2) & ((1 << bf) - 1)) | \
-                                                ((bs[sl2 + 1] & ((1 << (bpb - bf)) - 1)) << bf)
-                                    
-                                    # Fix each boundary block with most common non-boundary neighbor
-                                    from collections import Counter
-                                    for idx in sorted(boundary_set):
-                                        x = idx % 16; z = (idx // 16) % 16; yl = idx // 256
-                                        base = yl * 256
-                                        neighbors = []
-                                        for dx, dz2 in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                                            nx, nz = x + dx, z + dz2
-                                            if 0 <= nx < 16 and 0 <= nz < 16:
-                                                ni = base + nz * 16 + nx
-                                                if ni not in boundary_set:
-                                                    neighbors.append(blocks[ni])
-                                        if neighbors:
-                                            blocks[idx] = Counter(neighbors).most_common(1)[0][0]
-                                    
-                                    # Rebuild correct compact long array
-                                    total_bits = 4096 * bpb
-                                    total_longs = expected
-                                    bits = [0] * (total_longs * 64)
-                                    for idx in range(4096):
-                                        sb = idx * bpb
-                                        for j in range(bpb):
-                                            bp = sb + j
-                                            if bp < len(bits):
-                                                bits[bp] = (blocks[idx] >> j) & 1
-                                    for li in range(total_longs):
-                                        lv = 0
-                                        for j in range(64):
-                                            if li * 64 + j < len(bits):
-                                                lv |= bits[li * 64 + j] << j
-                                        lv &= 0xFFFFFFFFFFFFFFFF
-                                        if lv >= 0x8000000000000000:
-                                            lv -= 0x10000000000000000
-                                        bs[li] = lv
-                                    bs = bs[:total_longs]
-                                    stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
-                        # --- End corruption fix ---
+                            # Step 2: re-encode using standard compact-long-array (global bit position)
+                            expected = (4096 * bpb + 63) // 64
+                            bits = [0] * (expected * 64)
+                            for i in range(4096):
+                                bp = i * bpb
+                                for j in range(bpb):
+                                    if bp + j < len(bits):
+                                        bits[bp + j] = (blocks[i] >> j) & 1
+                            new_bs = []
+                            for li in range(expected):
+                                lv = 0
+                                for j in range(64):
+                                    lv |= bits[li * 64 + j] << j
+                                lv &= 0xFFFFFFFFFFFFFFFF
+                                if lv >= 0x8000000000000000:
+                                    lv -= 0x10000000000000000
+                                new_bs.append(lv)
+                            bs = new_bs
+                            stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
+                        # --- End conversion ---
                         
                         secs[y]=(bpb,pal,bs)
 
