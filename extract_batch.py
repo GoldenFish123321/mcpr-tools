@@ -15,12 +15,32 @@ import minecraft_data
 # ============================================================
 # Setup
 # ============================================================
-mc = minecraft_data("1.16.5")
-BLOCK = {}
-for b in mc.blocks_list:
-    n = "minecraft:" + b["name"]
-    for s in range(b["minStateId"], b["maxStateId"] + 1):
-        BLOCK[s] = n
+# Build state_id → full block name with properties from official data generator
+import json as _json
+_reports_path = os.path.join(os.path.dirname(__file__), "..", "generated", "reports", "blocks.json")
+if os.path.exists(_reports_path):
+    with open(_reports_path) as f:
+        _reports = _json.load(f)
+    BLOCK = {}
+    for name, data in _reports.items():
+        for s in data["states"]:
+            sid = s["id"]
+            props = s.get("properties", {})
+            if props:
+                # Block state format requires properties in alphabetical order
+                parts = sorted(f"{k}={v}" for k, v in props.items())
+                BLOCK[sid] = f"{name}[{','.join(parts)}]"
+            else:
+                BLOCK[sid] = name
+else:
+    # Fallback: use minecraft-data without properties
+    import minecraft_data as _mc
+    _mc_data = _mc("1.16.5")
+    BLOCK = {}
+    for b in _mc_data.blocks_list:
+        n = "minecraft:" + b["name"]
+        for s in range(b["minStateId"], b["maxStateId"] + 1):
+            BLOCK[s] = n
 def bn(bid): return BLOCK.get(bid, f"minecraft:block_{bid}")
 
 END_BIOMES   = {9, 40, 41, 42, 43}
@@ -299,18 +319,26 @@ if __name__ == '__main__':
                     lv["xPos"]=nbt_tag.Int(cx);lv["zPos"]=nbt_tag.Int(cz)
                     lv["Status"]=nbt_tag.String("full");lv["LastUpdate"]=nbt_tag.Long(0)
                     sl=nbt_tag.List[nbt_tag.Compound]()
-                    for y,s in enumerate(secs):
-                        if s is None:continue
-                        _,pal,bs=s
-                        ss=nbt_tag.Compound();ss["Y"]=nbt_tag.Byte(y);ss["BlockStates"]=nbt_tag.LongArray(bs)
-                        if pal is not None:
+                    # Process existing sections, fill missing Y=0..15 with air
+                    for y in range(16):
+                        if secs[y] is not None:
+                            _,pal,bs=secs[y]
+                            ss=nbt_tag.Compound();ss["Y"]=nbt_tag.Byte(y);ss["BlockStates"]=nbt_tag.LongArray(bs)
+                            if pal is not None:
+                                pl=nbt_tag.List[nbt_tag.Compound]()
+                                if pal:
+                                    for bid in pal:
+                                        e=nbt_tag.Compound();e["Name"]=nbt_tag.String(bn(bid));pl.append(e)
+                                else:
+                                    e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
+                                ss["Palette"]=pl
+                        else:
+                            # Missing section → fill with air
+                            ss=nbt_tag.Compound();ss["Y"]=nbt_tag.Byte(y)
                             pl=nbt_tag.List[nbt_tag.Compound]()
-                            if pal:
-                                for bid in pal:
-                                    e=nbt_tag.Compound();e["Name"]=nbt_tag.String(bn(bid));pl.append(e)
-                            else:
-                                e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
+                            e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
                             ss["Palette"]=pl
+                            ss["BlockStates"]=nbt_tag.LongArray([0]*64)  # 64 longs at bpb=1 = 4096 air blocks
                         sl.append(ss)
                     lv["Sections"]=sl
                     lv["Heightmaps"]=hm if hm else nbt_tag.Compound()
@@ -320,7 +348,11 @@ if __name__ == '__main__':
                     for be in bes:tl.append(be)
                     lv["TileEntities"]=tl
                     lv["InhabitedTime"]=nbt_tag.Long(0);lv["isLightOn"]=nbt_tag.Byte(1)
-                    root=nbt_tag.Compound();root["Level"]=lv
+                    lv["Entities"]=nbt_tag.List[nbt_tag.Compound]([])
+                    lv["TileTicks"]=nbt_tag.List[nbt_tag.Compound]([])
+                    lv["LiquidTicks"]=nbt_tag.List[nbt_tag.Compound]([])
+                    lv["Structures"]=nbt_tag.Compound()
+                    root=nbt_tag.Compound();root["Level"]=lv;root["DataVersion"]=nbt_tag.Int(2586)
 
                     chunk_bytes = make_entry(root)
 
@@ -385,8 +417,8 @@ if __name__ == '__main__':
     data['Version'] = ver
     data['LevelName'] = nbt_tag.String('survival_world')
     data['GameType'] = nbt_tag.Int(3)
-    data['generatorName'] = nbt_tag.String('flat')
-    data['generatorOptions'] = nbt_tag.String('3;minecraft:air;1;minecraft:the_void')
+    data['generatorName'] = nbt_tag.String('default')
+    data['generatorOptions'] = nbt_tag.String('')
     data['generatorVersion'] = nbt_tag.Int(0)
     data['SpawnX'] = nbt_tag.Int(0); data['SpawnY'] = nbt_tag.Int(80); data['SpawnZ'] = nbt_tag.Int(0)
     data['allowCommands'] = nbt_tag.Byte(1)
