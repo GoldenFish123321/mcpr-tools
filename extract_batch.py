@@ -270,7 +270,12 @@ if __name__ == '__main__':
                     for ei in range(bec):
                         try: be,o=rnbt_disk(payload,o)
                         except: continue
-                        if be:bes.append(be)
+                        if be:
+                            # Ensure sign tile entities have GlowingText (required by 1.16.5)
+                            if hasattr(be, 'get') and str(be.get('id','')) == 'minecraft:sign':
+                                if 'GlowingText' not in be:
+                                    be['GlowingText'] = nbt_tag.Byte(0)
+                            bes.append(be)
 
                     secs=[None]*16;so=0
                     for y in range(16):
