@@ -189,7 +189,6 @@ if __name__ == '__main__':
                 stats['total_020'] += 1
 
                 if not iss(ts): continue          # filter ①: time
-
                 stats['in_survival'] += 1
 
                 try:
@@ -255,16 +254,57 @@ if __name__ == '__main__':
 
                     # --- Filter ②: bottom bedrock check ---
                     # Survival world has bedrock at Y=0; lobby/city flat worlds don't
-                    # If Y=0 section exists but has no bedrock → reject
+                    # Decode ALL block states in Y=0 — if ANY block is not bedrock → reject
                     if secs[0] is not None:
-                        _, pal0, _ = secs[0]
-                        if pal0:
-                            has_bedrock = any(bn(pid) == 'minecraft:bedrock' for pid in pal0)
-                        else:
-                            # bpb > 8 (direct palette): check if any block in Y=0 is bedrock
-                            # This is rare; default to keeping
-                            has_bedrock = True
-                        if not has_bedrock:
+                        bpb0, pal0, bs0 = secs[0]
+                        mask0 = (1 << bpb0) - 1
+                        all_bedrock = True
+                        for i in range(4096):
+                            start_bit = i * bpb0
+                            start_long = start_bit // 64
+                            start_offset = start_bit % 64
+                            if start_offset + bpb0 <= 64:
+                                bid = (bs0[start_long] >> start_offset) & mask0
+                            else:
+                                bits_first = 64 - start_offset
+                                bits_second = bpb0 - bits_first
+                                bid = (bs0[start_long] >> start_offset) & ((1 << bits_first) - 1)
+                                bid |= (bs0[start_long + 1] & ((1 << bits_second) - 1)) << bits_first
+                            if pal0 is not None:
+                                name = bn(pal0[bid]) if bid < len(pal0) else 'unknown'
+                            else:
+                                name = bn(bid)
+                            if name != 'minecraft:bedrock':
+                                all_bedrock = False
+                                break
+                        if not all_bedrock:
+                            stats['no_bedrock'] += 1
+                            continue
+
+                    # Check Y=1: if ALL blocks are dirt → reject (lobby/city flat world)
+                    if secs[1] is not None:
+                        bpb1, pal1, bs1 = secs[1]
+                        mask1 = (1 << bpb1) - 1
+                        all_dirt = True
+                        for i in range(4096):
+                            start_bit = i * bpb1
+                            start_long = start_bit // 64
+                            start_offset = start_bit % 64
+                            if start_offset + bpb1 <= 64:
+                                bid = (bs1[start_long] >> start_offset) & mask1
+                            else:
+                                bits_first = 64 - start_offset
+                                bits_second = bpb1 - bits_first
+                                bid = (bs1[start_long] >> start_offset) & ((1 << bits_first) - 1)
+                                bid |= (bs1[start_long + 1] & ((1 << bits_second) - 1)) << bits_first
+                            if pal1 is not None:
+                                name = bn(pal1[bid]) if bid < len(pal1) else 'unknown'
+                            else:
+                                name = bn(bid)
+                            if name != 'minecraft:dirt':
+                                all_dirt = False
+                                break
+                        if all_dirt:
                             stats['no_bedrock'] += 1
                             continue
 
@@ -307,17 +347,6 @@ if __name__ == '__main__':
                     rd=os.path.join(chunk_dir,f'{rx}.{rz}')
                     os.makedirs(rd,exist_ok=True)
                     cf_path = os.path.join(rd,f'{lx}.{lz}')
-
-                    n_secs_this = sum(1 for s in secs if s is not None)
-
-                    if os.path.exists(cf_path):
-                        try:
-                            existing = open(cf_path,'rb').read()
-                            # Decompress before counting: chunk file = [4B len][0x02][zlib_nbt]
-                            sec_exist = zlib.decompress(existing[5:]).count(b'\x01\x00\x01Y')
-                            if sec_exist > n_secs_this:
-                                continue
-                        except: pass
 
                     with open(cf_path,'wb') as cf:
                         cf.write(chunk_bytes)
