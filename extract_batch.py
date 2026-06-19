@@ -256,36 +256,83 @@ if __name__ == '__main__':
                             if len(bs) > expected:
                                 bs = bs[:expected]
                         
-                        # --- Fix: detect server-side compact-long-array "uniform fill" corruption ---
-                        # When bpb doesn't divide 64 (e.g. bpb=5), the server may use a naive
-                        # repeating long pattern (0x0084210842108421) that produces wrong
-                        # values at cross-long-boundary block positions.
-                        # Fix: replace only the uniform prefix with the CORRECT 5-long rotating
-                        # pattern that properly encodes all-palette-index-1 at bpb=5.
+                        # --- Fix: bpb=5 compact-long-array boundary corruption ---
+                        # At bpb=5, 5 does not divide 64, so every 13th block crosses a
+                        # long boundary and gets wrong palette indices due to a server-side
+                        # encoding bug. Two cases:
+                        #  A) Uniform fill: all longs identical → replace with correct 5-long pattern
+                        #  B) Non-uniform: decode blocks, fix boundary blocks from neighbors, rebuild
                         if bpb == 5 and len(bs) >= 5 and pal is not None:
-                            # Find the uniform prefix (consecutive identical longs)
                             uniform_val = bs[0]
                             uniform_count = 0
                             for v in bs:
-                                if v == uniform_val:
-                                    uniform_count += 1
-                                else:
-                                    break
+                                if v == uniform_val: uniform_count += 1
+                                else: break
+                            
                             if uniform_count >= 5 and uniform_val == 0x0084210842108421:
-                                # Correct 5-long rotating pattern for all-palette-index-1 at bpb=5
+                                # Case A: uniform fill — replace with correct 5-long rotating pattern
                                 def signed64(v):
                                     v &= 0xFFFFFFFFFFFFFFFF
                                     return v - 0x10000000000000000 if v >= 0x8000000000000000 else v
-                                correct = [
-                                    signed64(0x1084210842108421),
-                                    signed64(0x2108421084210842),
-                                    signed64(0x4210842108421084),
-                                    signed64(0x8421084210842108),
-                                    signed64(0x0842108421084210),
-                                ]
+                                correct = [signed64(0x1084210842108421), signed64(0x2108421084210842),
+                                           signed64(0x4210842108421084), signed64(0x8421084210842108),
+                                           signed64(0x0842108421084210)]
                                 for i in range(uniform_count):
                                     bs[i] = correct[i % 5]
                                 stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
+                            else:
+                                # Case B: rebuild long array with boundary blocks fixed by neighbors
+                                # Only trigger when dl > expected (overlong signals corrupted encoding)
+                                if dl > expected:
+                                    # Decode blocks
+                                    blocks = [0] * 4096
+                                    boundary_set = set()
+                                    for idx in range(4096):
+                                        sb = idx * bpb; sl2 = sb // 64; so2 = sb % 64
+                                        if so2 + bpb <= 64:
+                                            blocks[idx] = (bs[sl2] >> so2) & ((1 << bpb) - 1)
+                                        elif sl2 + 1 < expected:
+                                            boundary_set.add(idx)
+                                            bf = 64 - so2
+                                            blocks[idx] = ((bs[sl2] >> so2) & ((1 << bf) - 1)) | \
+                                                ((bs[sl2 + 1] & ((1 << (bpb - bf)) - 1)) << bf)
+                                    
+                                    # Fix each boundary block with most common non-boundary neighbor
+                                    from collections import Counter
+                                    for idx in sorted(boundary_set):
+                                        x = idx % 16; z = (idx // 16) % 16; yl = idx // 256
+                                        base = yl * 256
+                                        neighbors = []
+                                        for dx, dz2 in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                                            nx, nz = x + dx, z + dz2
+                                            if 0 <= nx < 16 and 0 <= nz < 16:
+                                                ni = base + nz * 16 + nx
+                                                if ni not in boundary_set:
+                                                    neighbors.append(blocks[ni])
+                                        if neighbors:
+                                            blocks[idx] = Counter(neighbors).most_common(1)[0][0]
+                                    
+                                    # Rebuild correct compact long array
+                                    total_bits = 4096 * bpb
+                                    total_longs = expected
+                                    bits = [0] * (total_longs * 64)
+                                    for idx in range(4096):
+                                        sb = idx * bpb
+                                        for j in range(bpb):
+                                            bp = sb + j
+                                            if bp < len(bits):
+                                                bits[bp] = (blocks[idx] >> j) & 1
+                                    for li in range(total_longs):
+                                        lv = 0
+                                        for j in range(64):
+                                            if li * 64 + j < len(bits):
+                                                lv |= bits[li * 64 + j] << j
+                                        lv &= 0xFFFFFFFFFFFFFFFF
+                                        if lv >= 0x8000000000000000:
+                                            lv -= 0x10000000000000000
+                                        bs[li] = lv
+                                    bs = bs[:total_longs]
+                                    stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
                         # --- End corruption fix ---
                         
                         secs[y]=(bpb,pal,bs)
