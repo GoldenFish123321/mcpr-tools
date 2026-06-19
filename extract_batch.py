@@ -208,10 +208,10 @@ if __name__ == '__main__':
                             if o >= len(payload): break
                             b,o=rv(payload,o);biomes.append(b)
 
-                    # Filter ②: coordinate cluster
-                    if not is_origin_cluster(cx, cz):
-                        stats['far_world'] += 1
-                        continue
+                    # Filter ②: coordinate cluster (DISABLED)
+                    # if not is_origin_cluster(cx, cz):
+                    #     stats['far_world'] += 1
+                    #     continue
 
                     # Filter ③: dimension (End/Nether)
                     if biomes:
