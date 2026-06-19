@@ -261,9 +261,11 @@ if __name__ == '__main__':
                             sb = idx * bpb; sl = sb // 64; so = sb % 64
                             if so + bpb <= 64:
                                 bid = (bs[sl] >> so) & ((1 << bpb) - 1)
-                            else:
+                            elif sl + 1 < len(bs):
                                 bf = 64 - so
                                 bid = ((bs[sl] >> so) & ((1 << bf) - 1)) | ((bs[sl+1] & ((1 << (bpb-bf)) - 1)) << bf)
+                            else:
+                                bid = 0  # edge: last block truncated, treat as air
                             if pal is not None:
                                 return bn(pal[bid]) if bid < len(pal) else 'unknown'
                             return bn(bid)
