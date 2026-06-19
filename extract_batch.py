@@ -354,7 +354,7 @@ if __name__ == '__main__':
                     tl=nbt_tag.List[nbt_tag.Compound]()
                     for be in bes:tl.append(be)
                     lv["TileEntities"]=tl
-                    lv["InhabitedTime"]=nbt_tag.Long(0);lv["isLightOn"]=nbt_tag.Byte(1)
+                    lv["InhabitedTime"]=nbt_tag.Long(0);lv["isLightOn"]=nbt_tag.Byte(0)
                     lv["Entities"]=nbt_tag.List[nbt_tag.Compound]([])
                     lv["TileTicks"]=nbt_tag.List[nbt_tag.Compound]([])
                     lv["LiquidTicks"]=nbt_tag.List[nbt_tag.Compound]([])
