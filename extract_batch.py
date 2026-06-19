@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Unified extraction: all files → _chunks/ → MCA assembly → dimension clean → level.dat
+"""Unified extraction: all files -> _chunks/ -> MCA assembly -> level.dat
 
-Filters (four layers):
-  ① survival_periods.json    — time-based (only extract packets during survival periods)
-  ② bottom bedrock check     — reject chunks where Y=0 section has no bedrock (lobby/city flat world)
-  ③ coordinate cluster        — space-based (reject far-away Multiverse worlds)
-  ④ biome check               — dimension-based (reject End/Nether chunks)
+Filters (two layers):
+  1. bottom bedrock check  — reject chunks where Y=0 has no bedrock (lobby/city flat world)
+  2. biome check           — dimension-based (reject End/Nether chunks)
 """
-import zipfile, struct, os, sys, glob, json, zlib, io, time, shutil
-from collections import defaultdict, Counter
+import zipfile, struct, os, sys, glob, zlib, io, time, shutil
+from collections import Counter
 from nbtlib import File as NBTFile, tag as nbt_tag
 import minecraft_data
 
@@ -188,32 +186,12 @@ if __name__ == '__main__':
     mcpr_dir = sys.argv[1] if len(sys.argv) > 1 else 'mcpr_files'
     out_dir = sys.argv[2] if len(sys.argv) > 2 else 'output_survival'
 
-    # --- Load survival periods (filter ①: time) ---
-    with open('survival_periods.json') as f:
-        sp = [(t1,t2) for t1,t2 in json.load(f) if t2-t1 > 1000]
-    print(f"[*] {len(sp)} survival periods")
-
-    def iss(ts):
-        for t1,t2 in sp:
-            if t1 <= ts <= t2: return True
-        return False
-
-    # --- Filter ②: coordinate cluster bounds ---
-    # Origin cluster: rx ≈ [-9, 7], rz ≈ [-22, 7] (from verified data)
-    # Use generous bounds to catch all survival-world chunks
-    RX_MIN, RX_MAX = -15, 15
-    RZ_MIN, RZ_MAX = -30, 15
-
-    def is_origin_cluster(cx, cz):
-        rx, rz = cx >> 5, cz >> 5
-        return RX_MIN <= rx <= RX_MAX and RZ_MIN <= rz <= RZ_MAX
-
     # --- Process files ---
     files = sorted(glob.glob(os.path.join(mcpr_dir, '*.mcpr')))
     chunk_dir = os.path.join(out_dir, '_chunks')
     os.makedirs(chunk_dir, exist_ok=True)
 
-    stats = Counter()                       # total_020, in_survival, saved, far_world, end_nether
+    stats = Counter()
     total = 0
 
     for fi, fp in enumerate(files):
@@ -222,15 +200,11 @@ if __name__ == '__main__':
         t0 = time.time()
         zf = zipfile.ZipFile(fp)
         kept = 0
-        last_report = t0
 
         with zf.open('recording.tmcpr') as f:
             for ts, pid, payload in packets(f):
                 if pid != 0x20: continue
                 stats['total_020'] += 1
-
-                if not iss(ts): continue          # filter ①: time
-                stats['in_survival'] += 1
 
                 try:
                     o = 0
@@ -486,12 +460,10 @@ if __name__ == '__main__':
     # --- Summary ---
     print(f"\n{'='*55}")
     print(f"  ChunkData packets scanned:  {stats['total_020']:>8,}")
-    print(f"  In survival periods:        {stats['in_survival']:>8,}")
     print(f"  Rejected (no bedrock):       {stats['no_bedrock']:>8,}")
-    print(f"  Rejected (far world):       {stats['far_world']:>8,}")
     print(f"  Rejected (End biomes):      {stats['end']:>8,}")
     print(f"  Rejected (Nether biomes):   {stats['nether']:>8,}")
-    print(f"  Saved (overworld survival): {stats['saved']:>8,}")
+    print(f"  Saved (overworld): {stats['saved']:>16,}")
     print(f"  ───────────────────────────")
     print(f"  MCA files: {mca_count}, chunks: {mca_chunks}")
 
