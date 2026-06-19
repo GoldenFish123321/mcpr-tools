@@ -250,48 +250,14 @@ if __name__ == '__main__':
                         for _ in range(dl):
                             if so+8>len(sd):break
                             bs.append(struct.unpack('>q',sd[so:so+8])[0]);so+=8
-                        # Truncate to expected size (server may send extra longs)
-                        # EXCEPT for bpb=5, where server uses per-long encoding (12 blocks/long,
-                        # 4 unused bits) instead of standard compact-long-array. We convert below.
-                        if bpb > 0 and bpb != 5:
-                            expected = (4096 * bpb + 63) // 64
+                        # 1.16+ aligned encoding: blocks do NOT span long boundaries.
+                        # Each long holds floor(64/bpb) blocks; remaining bits are padding.
+                        # bpb=5: 12 blocks/long → ceil(4096/12) = 342 longs
+                        if bpb > 0:
+                            bpl = 64 // bpb  # blocks per long
+                            expected = (4096 + bpl - 1) // bpl  # ceil(4096 / bpl)
                             if len(bs) > expected:
                                 bs = bs[:expected]
-                        
-                        # --- Fix: bpb=5 per-long → standard compact-long-array conversion ---
-                        # The server encodes bpb=5 sections with 12 blocks per long (60 bits +
-                        # 4 unused padding), NOT the standard global-bit-position scheme.
-                        # This gives 342 longs instead of 320. We convert to standard format.
-                        if bpb == 5 and len(bs) >= 5 and pal is not None:
-                            ppb = 12  # blocks per long in server's per-long scheme
-                            # Step 1: decode all 4096 blocks using per-long scheme
-                            blocks = [0] * 4096
-                            for i in range(4096):
-                                long_idx = i // ppb
-                                bit_off = (i % ppb) * bpb
-                                if long_idx < len(bs):
-                                    blocks[i] = (bs[long_idx] >> bit_off) & 0x1F
-                            
-                            # Step 2: re-encode using standard compact-long-array (global bit position)
-                            expected = (4096 * bpb + 63) // 64
-                            bits = [0] * (expected * 64)
-                            for i in range(4096):
-                                bp = i * bpb
-                                for j in range(bpb):
-                                    if bp + j < len(bits):
-                                        bits[bp + j] = (blocks[i] >> j) & 1
-                            new_bs = []
-                            for li in range(expected):
-                                lv = 0
-                                for j in range(64):
-                                    lv |= bits[li * 64 + j] << j
-                                lv &= 0xFFFFFFFFFFFFFFFF
-                                if lv >= 0x8000000000000000:
-                                    lv -= 0x10000000000000000
-                                new_bs.append(lv)
-                            bs = new_bs
-                            stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
-                        # --- End conversion ---
                         
                         secs[y]=(bpb,pal,bs)
 
@@ -301,14 +267,14 @@ if __name__ == '__main__':
                     if secs[0] is not None:
                         bpb0, pal0, bs0 = secs[0]
                         def decode_block(idx, bpb, bs, pal):
-                            sb = idx * bpb; sl = sb // 64; so = sb % 64
-                            if so + bpb <= 64:
-                                bid = (bs[sl] >> so) & ((1 << bpb) - 1)
-                            elif sl + 1 < len(bs):
-                                bf = 64 - so
-                                bid = ((bs[sl] >> so) & ((1 << bf) - 1)) | ((bs[sl+1] & ((1 << (bpb-bf)) - 1)) << bf)
+                            # 1.16+ aligned: blocks do NOT span long boundaries
+                            bpl = 64 // bpb  # blocks per long
+                            long_idx = idx // bpl
+                            bit_off = (idx % bpl) * bpb
+                            if long_idx < len(bs):
+                                bid = (bs[long_idx] >> bit_off) & ((1 << bpb) - 1)
                             else:
-                                bid = 0  # edge: last block truncated, treat as air
+                                bid = 0
                             if pal is not None:
                                 return bn(pal[bid]) if bid < len(pal) else 'unknown'
                             return bn(bid)
@@ -372,12 +338,7 @@ if __name__ == '__main__':
                     kept+=1
                     stats['saved'] += 1
 
-                except Exception as ex:
-                    if cx == -29 and cz == -1:
-                        import traceback
-                        print(f"  !!! Chunk (-29,-1) FAILED: {ex}")
-                        traceback.print_exc()
-                    continue
+                except: continue
 
         zf.close()
         total += kept
@@ -467,7 +428,6 @@ if __name__ == '__main__':
     print(f"  Rejected (Nether biomes):   {stats['nether']:>8,}")
     print(f"  Saved (overworld survival): {stats['saved']:>8,}")
     print(f"  ───────────────────────────")
-    print(f"  Corrupted Y=0 sections fixed: {stats.get('fixed_corrupt', 0):>8}")
     print(f"  MCA files: {mca_count}, chunks: {mca_chunks}")
 
     # Bounds
