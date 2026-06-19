@@ -282,8 +282,10 @@ if __name__ == '__main__':
                                 stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
                             else:
                                 # Case B: rebuild long array with boundary blocks fixed by neighbors
-                                # Only trigger when dl > expected (overlong signals corrupted encoding)
-                                if dl > expected:
+                                # Applies to ALL non-uniform bpb=5 sections (not just overlong dl)
+                                # Cross-boundary blocks (every 13th at bpb=5) get wrong state data
+                                expected = (4096 * bpb + 63) // 64
+                                if len(bs) >= expected:
                                     # Decode blocks
                                     blocks = [0] * 4096
                                     boundary_set = set()
