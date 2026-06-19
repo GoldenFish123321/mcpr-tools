@@ -259,49 +259,33 @@ if __name__ == '__main__':
                         # --- Fix: detect server-side compact-long-array "uniform fill" corruption ---
                         # When bpb doesn't divide 64 (e.g. bpb=5), the server may use a naive
                         # repeating long pattern (0x0084210842108421) that produces wrong
-                        # values at cross-long-boundary block positions — scrambling the Y=0 layer.
-                        # This generates a correct all-bedrock encoding for the affected section.
-                        if y == 0 and bpb == 5 and len(bs) >= 5 and pal is not None:
-                            # Find bedrock palette index
-                            bedrock_idx = None
-                            for i, pid in enumerate(pal):
-                                if bn(pid) == 'minecraft:bedrock':
-                                    bedrock_idx = i
+                        # values at cross-long-boundary block positions.
+                        # Fix: replace only the uniform prefix with the CORRECT 5-long rotating
+                        # pattern that properly encodes all-palette-index-1 at bpb=5.
+                        if bpb == 5 and len(bs) >= 5 and pal is not None:
+                            # Find the uniform prefix (consecutive identical longs)
+                            uniform_val = bs[0]
+                            uniform_count = 0
+                            for v in bs:
+                                if v == uniform_val:
+                                    uniform_count += 1
+                                else:
                                     break
-                            
-                            if bedrock_idx is not None:
-                                # Check for uniform first 5+ longs (corruption signature)
-                                uniform_val = bs[0]
-                                uniform_count = 0
-                                for v in bs:
-                                    if v == uniform_val:
-                                        uniform_count += 1
-                                    else:
-                                        break
-                                if uniform_count >= 5 and uniform_val == 0x0084210842108421:
-                                    # Found the buggy pattern — regenerate correct all-bedrock long array
-                                    total_longs = len(bs)
-                                    bits = [0] * (total_longs * 64)
-                                    # Set every block to the bedrock palette index with correct bit pattern
-                                    for idx in range(4096):
-                                        sb = idx * bpb
-                                        for j in range(bpb):
-                                            bit_pos = sb + j
-                                            if bit_pos < len(bits):
-                                                bits[bit_pos] = (bedrock_idx >> j) & 1
-                                    fixed_bs = []
-                                    for li in range(total_longs):
-                                        lv = 0
-                                        for j in range(64):
-                                            if li * 64 + j < len(bits):
-                                                lv |= bits[li * 64 + j] << j
-                                        # Convert to signed 64-bit for nbtlib compatibility
-                                        lv &= 0xFFFFFFFFFFFFFFFF
-                                        if lv >= 0x8000000000000000:
-                                            lv -= 0x10000000000000000
-                                        fixed_bs.append(lv)
-                                    bs = fixed_bs
-                                    stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
+                            if uniform_count >= 5 and uniform_val == 0x0084210842108421:
+                                # Correct 5-long rotating pattern for all-palette-index-1 at bpb=5
+                                def signed64(v):
+                                    v &= 0xFFFFFFFFFFFFFFFF
+                                    return v - 0x10000000000000000 if v >= 0x8000000000000000 else v
+                                correct = [
+                                    signed64(0x1084210842108421),
+                                    signed64(0x2108421084210842),
+                                    signed64(0x4210842108421084),
+                                    signed64(0x8421084210842108),
+                                    signed64(0x0842108421084210),
+                                ]
+                                for i in range(uniform_count):
+                                    bs[i] = correct[i % 5]
+                                stats['fixed_corrupt'] = stats.get('fixed_corrupt', 0) + 1
                         # --- End corruption fix ---
                         
                         secs[y]=(bpb,pal,bs)
