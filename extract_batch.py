@@ -15,32 +15,12 @@ import minecraft_data
 # ============================================================
 # Setup
 # ============================================================
-# Build state_id → full block name with properties from official data generator
-import json as _json
-_reports_path = os.path.join(os.path.dirname(__file__), "..", "generated", "reports", "blocks.json")
-if os.path.exists(_reports_path):
-    with open(_reports_path) as f:
-        _reports = _json.load(f)
-    BLOCK = {}
-    for name, data in _reports.items():
-        for s in data["states"]:
-            sid = s["id"]
-            props = s.get("properties", {})
-            if props:
-                # Block state format requires properties in alphabetical order
-                parts = sorted(f"{k}={v}" for k, v in props.items())
-                BLOCK[sid] = f"{name}[{','.join(parts)}]"
-            else:
-                BLOCK[sid] = name
-else:
-    # Fallback: use minecraft-data without properties
-    import minecraft_data as _mc
-    _mc_data = _mc("1.16.5")
-    BLOCK = {}
-    for b in _mc_data.blocks_list:
-        n = "minecraft:" + b["name"]
-        for s in range(b["minStateId"], b["maxStateId"] + 1):
-            BLOCK[s] = n
+mc = minecraft_data("1.16.5")
+BLOCK = {}
+for b in mc.blocks_list:
+    n = "minecraft:" + b["name"]
+    for s in range(b["minStateId"], b["maxStateId"] + 1):
+        BLOCK[s] = n
 def bn(bid): return BLOCK.get(bid, f"minecraft:block_{bid}")
 
 END_BIOMES   = {9, 40, 41, 42, 43}
