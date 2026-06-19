@@ -101,8 +101,9 @@ class NR:
             return lst,o
         if t == 10:
             c=nbt_tag.Compound()
-            while d[o]!=0:s.o=o;nm,v,o=s.r()
-            if v is not None:c[nm]=v
+            while d[o]!=0:
+                s.o=o;nm,v,o=s.r()
+                if v is not None:c[nm]=v
             return c,o+1
         if t == 11: l=struct.unpack('>i',d[o:o+4])[0];o+=4;return nbt_tag.IntArray([struct.unpack('>i',d[o+i*4:o+i*4+4])[0] for i in range(l)]),o+l*4
         if t == 12: l=struct.unpack('>i',d[o:o+4])[0];o+=4;return nbt_tag.LongArray([struct.unpack('>q',d[o+i*8:o+i*8+8])[0] for i in range(l)]),o+l*8
