@@ -253,60 +253,34 @@ if __name__ == '__main__':
                         secs[y]=(bpb,pal,bs)
 
                     # --- Filter ②: bottom bedrock check ---
-                    # Survival world has bedrock at Y=0; lobby/city flat worlds don't
-                    # Decode ALL block states in Y=0 — if ANY block is not bedrock → reject
+                    # Y=0 layer (indices 0-255, 16×16) must be all bedrock
+                    # Y=1 layer (indices 256-511) reject if all dirt (lobby/city flat world)
                     if secs[0] is not None:
                         bpb0, pal0, bs0 = secs[0]
-                        mask0 = (1 << bpb0) - 1
-                        all_bedrock = True
-                        for i in range(4096):
-                            start_bit = i * bpb0
-                            start_long = start_bit // 64
-                            start_offset = start_bit % 64
-                            if start_offset + bpb0 <= 64:
-                                bid = (bs0[start_long] >> start_offset) & mask0
+                        def decode_block(idx, bpb, bs, pal):
+                            sb = idx * bpb; sl = sb // 64; so = sb % 64
+                            if so + bpb <= 64:
+                                bid = (bs[sl] >> so) & ((1 << bpb) - 1)
                             else:
-                                bits_first = 64 - start_offset
-                                bits_second = bpb0 - bits_first
-                                bid = (bs0[start_long] >> start_offset) & ((1 << bits_first) - 1)
-                                bid |= (bs0[start_long + 1] & ((1 << bits_second) - 1)) << bits_first
-                            if pal0 is not None:
-                                name = bn(pal0[bid]) if bid < len(pal0) else 'unknown'
-                            else:
-                                name = bn(bid)
-                            if name != 'minecraft:bedrock':
-                                all_bedrock = False
-                                break
-                        if not all_bedrock:
-                            stats['no_bedrock'] += 1
-                            continue
+                                bf = 64 - so
+                                bid = ((bs[sl] >> so) & ((1 << bf) - 1)) | ((bs[sl+1] & ((1 << (bpb-bf)) - 1)) << bf)
+                            if pal is not None:
+                                return bn(pal[bid]) if bid < len(pal) else 'unknown'
+                            return bn(bid)
 
-                    # Check Y=1: if ALL blocks are dirt → reject (lobby/city flat world)
-                    if secs[1] is not None:
-                        bpb1, pal1, bs1 = secs[1]
-                        mask1 = (1 << bpb1) - 1
-                        all_dirt = True
-                        for i in range(4096):
-                            start_bit = i * bpb1
-                            start_long = start_bit // 64
-                            start_offset = start_bit % 64
-                            if start_offset + bpb1 <= 64:
-                                bid = (bs1[start_long] >> start_offset) & mask1
-                            else:
-                                bits_first = 64 - start_offset
-                                bits_second = bpb1 - bits_first
-                                bid = (bs1[start_long] >> start_offset) & ((1 << bits_first) - 1)
-                                bid |= (bs1[start_long + 1] & ((1 << bits_second) - 1)) << bits_first
-                            if pal1 is not None:
-                                name = bn(pal1[bid]) if bid < len(pal1) else 'unknown'
-                            else:
-                                name = bn(bid)
-                            if name != 'minecraft:dirt':
-                                all_dirt = False
-                                break
-                        if all_dirt:
-                            stats['no_bedrock'] += 1
-                            continue
+                        y0_ok = True
+                        for i in range(256):
+                            if decode_block(i, bpb0, bs0, pal0) != 'minecraft:bedrock':
+                                y0_ok = False; break
+                        if not y0_ok:
+                            stats['no_bedrock'] += 1; continue
+
+                        y1_all_dirt = True
+                        for i in range(256, 512):
+                            if decode_block(i, bpb0, bs0, pal0) != 'minecraft:dirt':
+                                y1_all_dirt = False; break
+                        if y1_all_dirt:
+                            stats['no_bedrock'] += 1; continue
 
                     # --- Build NBT ---
                     lv=nbt_tag.Compound()
