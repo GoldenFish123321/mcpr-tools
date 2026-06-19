@@ -16,12 +16,32 @@ import minecraft_data
 # Setup
 # ============================================================
 mc = minecraft_data("1.16.5")
-BLOCK = {}
-for b in mc.blocks_list:
-    n = "minecraft:" + b["name"]
-    for s in range(b["minStateId"], b["maxStateId"] + 1):
-        BLOCK[s] = n
-def bn(bid): return BLOCK.get(bid, f"minecraft:block_{bid}")
+# Load official state_id → properties mapping from data generator
+import json as _json
+_reports_path = os.path.join(os.path.dirname(__file__), "..", "generated", "reports", "blocks.json")
+_STATE_PROPS = {}
+if os.path.exists(_reports_path):
+    with open(_reports_path) as f:
+        _reports = _json.load(f)
+    for name, data in _reports.items():
+        for s in data["states"]:
+            _STATE_PROPS[s["id"]] = (name, s.get("properties", {}))
+
+def bn(bid):
+    """Return block name string for palette (no properties)."""
+    if bid in _STATE_PROPS:
+        return _STATE_PROPS[bid][0]
+    # Fallback: minecraft-data
+    for b in mc.blocks_list:
+        if b["minStateId"] <= bid <= b["maxStateId"]:
+            return "minecraft:" + b["name"]
+    return f"minecraft:block_{bid}"
+
+def bp(bid):
+    """Return (name, props_dict) for building Anvil palette entry."""
+    if bid in _STATE_PROPS:
+        return _STATE_PROPS[bid]
+    return bn(bid), {}
 
 END_BIOMES   = {9, 40, 41, 42, 43}
 NETHER_BIOMES = {8, 170, 171, 172, 173}
@@ -308,7 +328,14 @@ if __name__ == '__main__':
                                 pl=nbt_tag.List[nbt_tag.Compound]()
                                 if pal:
                                     for bid in pal:
-                                        e=nbt_tag.Compound();e["Name"]=nbt_tag.String(bn(bid));pl.append(e)
+                                        name, props = bp(bid)
+                                        e=nbt_tag.Compound();e["Name"]=nbt_tag.String(name)
+                                        if props:
+                                            pc=nbt_tag.Compound()
+                                            for k,v in props.items():
+                                                pc[k]=nbt_tag.String(v)
+                                            e["Properties"]=pc
+                                        pl.append(e)
                                 else:
                                     e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
                                 ss["Palette"]=pl
