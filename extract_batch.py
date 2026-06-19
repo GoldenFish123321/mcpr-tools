@@ -5,7 +5,7 @@ Filters (two layers):
   1. bottom bedrock check  — reject chunks where Y=0 has no bedrock (lobby/city flat world)
   2. biome check           — dimension-based (reject End/Nether chunks)
 """
-import zipfile, struct, os, sys, glob, zlib, io, time, shutil
+import zipfile, struct, os, sys, glob, zlib, io, time, shutil, math
 from collections import Counter
 from nbtlib import File as NBTFile, tag as nbt_tag
 import minecraft_data
@@ -321,8 +321,32 @@ if __name__ == '__main__':
                     # Process existing sections, fill missing Y=0..15 with air
                     for y in range(16):
                         if secs[y] is not None:
-                            _,pal,bs=secs[y]
-                            ss=nbt_tag.Compound();ss["Y"]=nbt_tag.Byte(y);ss["BlockStates"]=nbt_tag.LongArray(bs)
+                            bpb, pal, bs = secs[y]
+                            # Convert DIRECT palette (bpb>8, pal=None) to regular palette
+                            # Minecraft 1.16.5 has issues with mixed DIRECT/regular sections
+                            if pal is None and bpb > 0:
+                                bpl_d = 64 // max(bpb, 1)
+                                # Collect unique state IDs
+                                seen = {}
+                                idxs = []
+                                for i in range(4096):
+                                    li = i // bpl_d
+                                    bo = (i % bpl_d) * bpb
+                                    sid = (bs[li] >> bo) & ((1 << bpb) - 1) if li < len(bs) else 0
+                                    if sid not in seen:
+                                        seen[sid] = len(seen)
+                                    idxs.append(seen[sid])
+                                # Build palette and re-encode
+                                pal = list(seen.keys())
+                                new_bpb = max(1, math.ceil(math.log2(len(pal)))) if pal else 4
+                                new_bpl = 64 // new_bpb
+                                new_longs = [0] * ((4096 + new_bpl - 1) // new_bpl)
+                                for i, pid in enumerate(idxs):
+                                    li = i // new_bpl
+                                    bo = (i % new_bpl) * new_bpb
+                                    new_longs[li] |= (pid & ((1 << new_bpb) - 1)) << bo
+                                bs = new_longs
+                            ss = nbt_tag.Compound();ss["Y"] = nbt_tag.Byte(y);ss["BlockStates"] = nbt_tag.LongArray(bs)
                             if pal is not None:
                                 pl=nbt_tag.List[nbt_tag.Compound]()
                                 if pal:
