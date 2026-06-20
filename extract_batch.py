@@ -194,7 +194,12 @@ if __name__ == '__main__':
     stats = Counter()
     total = 0
 
+    # Files to skip (mc.mimicraft.cn — completely different server)
+    SKIP_FILES = {'2022_06_21_12_50_26.mcpr', '2022_06_21_13_31_40.mcpr'}
     for fi, fp in enumerate(files):
+        if os.path.basename(fp) in SKIP_FILES:
+            print(f"  [{fi+1}/{len(files)}] {os.path.basename(fp)}: SKIPPED (mc.mimicraft.cn)")
+            continue
         fn = os.path.basename(fp)
         size_mb = os.path.getsize(fp) // 1024 // 1024
         t0 = time.time()
@@ -281,9 +286,9 @@ if __name__ == '__main__':
                         
                         secs[y]=(bpb,pal,bs)
 
-                    # --- Filter ②: bottom bedrock check ---
+                    # --- Filter ②: bottom bedrock check + Y=1 dirt check
                     # Y=0 layer (indices 0-255, 16×16) must be all bedrock
-                    # Y=1 layer (indices 256-511) reject if all dirt (lobby/city flat world)
+                    # Y=1 layer (indices 256-511): reject if all dirt (lobby/city flat world)
                     if secs[0] is not None:
                         bpb0, pal0, bs0 = secs[0]
                         def decode_block(idx, bpb, bs, pal):
@@ -299,18 +304,20 @@ if __name__ == '__main__':
                                 return bn(pal[bid]) if bid < len(pal) else 'unknown'
                             return bn(bid)
 
-                        y0_ok = True
-                        for i in range(256):
-                            if decode_block(i, bpb0, bs0, pal0) != 'minecraft:bedrock':
-                                y0_ok = False; break
-                        if not y0_ok:
-                            stats['no_bedrock'] += 1; continue
-
+                        # Check Y=1 for all-dirt FIRST (catches flat world regardless of Y=0)
                         y1_all_dirt = True
                         for i in range(256, 512):
                             if decode_block(i, bpb0, bs0, pal0) != 'minecraft:dirt':
                                 y1_all_dirt = False; break
                         if y1_all_dirt:
+                            stats['no_bedrock'] += 1; continue
+
+                        # Check Y=0 for all-bedrock
+                        y0_ok = True
+                        for i in range(256):
+                            if decode_block(i, bpb0, bs0, pal0) != 'minecraft:bedrock':
+                                y0_ok = False; break
+                        if not y0_ok:
                             stats['no_bedrock'] += 1; continue
 
                     # --- Build NBT ---
