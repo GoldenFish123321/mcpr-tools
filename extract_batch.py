@@ -15,6 +15,7 @@ from nbt_reader import rnbt, rnbt_disk
 from mca_writer import make_entry, write_region, CS
 from level_utils import build_level_dat
 from seed_validator import check_biomes_exact, is_available as seed_validator_available, maybe_warn_fallback
+from entity_registry import entity_name
 
 
 # ============================================================
@@ -65,6 +66,7 @@ if __name__ == '__main__':
     # Biome cache: full chunks store their biomes, partial chunks look up from here.
     biome_cache = {}  # {(cx, cz): [biome_id, ...]}
     chunk_ts = {}     # {(rx, rz, lx, lz): latest_ts}  — keep newest chunk
+    entity_state = {} # {entity_id: {'type': int, 'x': float, 'y': float, 'z': float, 'uuid': bytes}}
 
     for fi, fp in enumerate(files):
         fn = os.path.basename(fp)
@@ -79,6 +81,42 @@ if __name__ == '__main__':
                 try:
                     with zf.open('recording.tmcpr') as f:
                         for ts, pid, payload in packets(f):
+                            # --- Entity tracking ---
+                            if pid == 0x02:      # Spawn Living Entity
+                                try:
+                                    o = 0
+                                    eid, o = rv(payload, o)
+                                    uuid_bytes = payload[o:o+16]; o += 16
+                                    etype, o = rv(payload, o)
+                                    ex = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    ey = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    ez = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    entity_state[eid] = {'type': etype, 'x': ex, 'y': ey, 'z': ez, 'uuid': uuid_bytes}
+                                except: pass
+                                continue
+                            elif pid == 0x56: # Entity Teleport
+                                try:
+                                    o = 0
+                                    eid, o = rv(payload, o)
+                                    ex = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    ey = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    ez = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    if eid in entity_state:
+                                        entity_state[eid]['x'] = ex
+                                        entity_state[eid]['y'] = ey
+                                        entity_state[eid]['z'] = ez
+                                except: pass
+                                continue
+                            elif pid == 0x36: # Destroy Entities
+                                try:
+                                    o = 0
+                                    count, o = rv(payload, o)
+                                    for _ in range(count):
+                                        eid, o = rv(payload, o)
+                                        entity_state.pop(eid, None)
+                                except: pass
+                                continue
+
                             if pid != 0x20: continue
                             stats['total_020'] += 1
 
@@ -323,6 +361,61 @@ if __name__ == '__main__':
         print(status)
 
     print(f"\n[+] Extraction done: {total} chunks in {chunk_dir}/")
+
+    # --- Inject entities ---
+    print(f"\n[*] Injecting entities...")
+    # Build spatial index: chunk → entities
+    entity_by_chunk = {}
+    for eid, ent in entity_state.items():
+        ecx, ecz = int(ent['x']) >> 4, int(ent['z']) >> 4
+        entity_by_chunk.setdefault((ecx, ecz), []).append(ent)
+    injected = 0
+    for dname in sorted(os.listdir(chunk_dir)):
+        dp = os.path.join(chunk_dir, dname)
+        if not os.path.isdir(dp): continue
+        rx, rz = int(dname.split('.')[0]), int(dname.split('.')[1])
+        for cn in os.listdir(dp):
+            cp = os.path.join(dp, cn)
+            try:
+                lx, lz = map(int, cn.split('.'))
+                cx, cz = rx * 32 + lx, rz * 32 + lz
+                ents_in_chunk = entity_by_chunk.get((cx, cz))
+                if not ents_in_chunk: continue
+
+                # Read, parse, inject entities, re-serialize
+                with open(cp, 'rb') as cf:
+                    raw = cf.read()
+                data = zlib.decompress(raw[5:5 + struct.unpack('>I', raw[:4])[0] - 1])
+                root = NBTFile.load(io.BytesIO(data), gzipped=False)
+                lv = root["Level"]
+
+                ent_list = nbt_tag.List[nbt_tag.Compound]()
+                for ent in ents_in_chunk:
+                    e = nbt_tag.Compound()
+                    e["id"] = nbt_tag.String(entity_name(ent['type']))
+                    e["Pos"] = nbt_tag.List[nbt_tag.Double]([
+                        nbt_tag.Double(ent['x']), nbt_tag.Double(ent['y']), nbt_tag.Double(ent['z']),
+                    ])
+                    u = ent['uuid']
+                    e["UUID"] = nbt_tag.IntArray([
+                        struct.unpack('>i', u[0:4])[0], struct.unpack('>i', u[4:8])[0],
+                        struct.unpack('>i', u[8:12])[0], struct.unpack('>i', u[12:16])[0],
+                    ])
+                    e["NoAI"] = nbt_tag.Byte(1)
+                    e["PersistenceRequired"] = nbt_tag.Byte(1)
+                    ent_list.append(e)
+                lv["Entities"] = ent_list
+
+                buf = io.BytesIO()
+                NBTFile(root, gzipped=False, byteorder='big').write(buf)
+                compressed = zlib.compress(buf.getvalue())
+                new_entry = struct.pack('>I', len(compressed) + 1) + b'\x02' + compressed
+                with open(cp, 'wb') as cf:
+                    cf.write(new_entry)
+                injected += len(ent_list)
+            except:
+                continue
+    print(f"  {injected} entities injected into chunks")
 
     # --- Assemble MCA ---
     print(f"\n[*] Assembling MCA...")
