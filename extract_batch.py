@@ -65,7 +65,6 @@ if __name__ == '__main__':
     total = 0
     # Biome cache: full chunks store their biomes, partial chunks look up from here.
     biome_cache = {}  # {(cx, cz): [biome_id, ...]}
-    chunk_ts = {}     # {(rx, rz, lx, lz): latest_ts}  — keep newest chunk
     entity_state = {} # {entity_id: {'type': int, 'x': float, 'y': float, 'z': float, 'uuid': bytes}}
 
     for fi, fp in enumerate(files):
@@ -316,13 +315,6 @@ if __name__ == '__main__':
                                 if lx<0:lx+=32
                                 if lz<0:lz+=32
 
-                                # Keep only the most recent version of each chunk
-                                chunk_key = (rx, rz, lx, lz)
-                                if chunk_key in chunk_ts and chunk_ts[chunk_key] >= ts:
-                                    stats['dup_skip'] += 1
-                                    continue
-                                chunk_ts[chunk_key] = ts
-
                                 rd=os.path.join(chunk_dir,f'{rx}.{rz}')
                                 os.makedirs(rd,exist_ok=True)
                                 cf_path = os.path.join(rd,f'{lx}.{lz}')
@@ -364,6 +356,15 @@ if __name__ == '__main__':
 
     # --- Inject entities ---
     print(f"\n[*] Injecting entities...")
+    # Debug: show what was tracked
+    if entity_state:
+        from collections import Counter
+        types = Counter()
+        for ent in entity_state.values():
+            types[entity_name(ent['type'])] += 1
+        print(f"  Tracked {len(entity_state)} entities: {dict(types.most_common(10))}")
+    else:
+        print(f"  No entities tracked (all destroyed or none recorded)")
     # Build spatial index: chunk → entities
     entity_by_chunk = {}
     for eid, ent in entity_state.items():
@@ -464,7 +465,6 @@ if __name__ == '__main__':
     print(f"  Rejected (seed mismatch):    {stats['seed_mismatch']:>8,}")
     print(f"  Rejected (End biomes):      {stats['end']:>8,}")
     print(f"  Rejected (Nether biomes):   {stats['nether']:>8,}")
-    print(f"  Duplicates skipped (older):    {stats['dup_skip']:>8,}")
     print(f"  Saved (overworld): {stats['saved']:>16,}")
     print(f"  ───────────────────────────")
     print(f"  MCA files: {mca_count}, chunks: {mca_chunks}")
