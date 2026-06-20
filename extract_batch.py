@@ -14,7 +14,7 @@ from protocol import rv, packets
 from nbt_reader import rnbt, rnbt_disk
 from mca_writer import make_entry, write_region, CS
 from level_utils import build_level_dat
-from seed_validator import check_biomes_exact, is_available as seed_validator_available
+from seed_validator import check_biomes_exact, is_available as seed_validator_available, maybe_warn_fallback
 
 
 # ============================================================
@@ -45,6 +45,7 @@ if __name__ == '__main__':
             from cubiomespi import MCVersion
             MC_VER = MCVersion.MC_1_16_5
             print(f"[*] Seed: {seed} — biome validation enabled")
+            maybe_warn_fallback()
         else:
             print(f"WARNING: cubiomes library not available, --seed {seed} ignored for biome filtering",
                   file=sys.stderr)

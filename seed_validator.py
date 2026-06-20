@@ -7,6 +7,7 @@ all 16 biome cells in a chunk against cubiomes predictions.
 import ctypes
 import os
 import platform
+import sys
 
 # ── Shared library ───────────────────────────────────────────
 try:
@@ -29,6 +30,7 @@ def _load_lib():
 
 
 _lib = _load_lib()
+_has_scale4 = False
 
 if _lib:
     _lib.INTERFACE_getBiomeAt.restype = ctypes.c_int
@@ -40,16 +42,22 @@ if _lib:
         ctypes.c_int,      # y
         ctypes.c_int,      # z
     ]
-    _lib.INTERFACE_getBiomeAtScale.restype = ctypes.c_int
-    _lib.INTERFACE_getBiomeAtScale.argtypes = [
-        ctypes.c_int,      # mcVersion
-        ctypes.c_uint64,   # seed
-        ctypes.c_int,      # dimension
-        ctypes.c_int,      # scale
-        ctypes.c_int,      # x
-        ctypes.c_int,      # y
-        ctypes.c_int,      # z
-    ]
+    # INTERFACE_getBiomeAtScale is NOT in the pip package DLL.
+    # It requires recompiling lib with the newlib.c from this repo.
+    try:
+        _lib.INTERFACE_getBiomeAtScale.restype = ctypes.c_int
+        _lib.INTERFACE_getBiomeAtScale.argtypes = [
+            ctypes.c_int,      # mcVersion
+            ctypes.c_uint64,   # seed
+            ctypes.c_int,      # dimension
+            ctypes.c_int,      # scale
+            ctypes.c_int,      # x
+            ctypes.c_int,      # y
+            ctypes.c_int,      # z
+        ]
+        _has_scale4 = True
+    except AttributeError:
+        pass  # old DLL — will use scale=1 fallback
 
 
 def is_available():
@@ -58,46 +66,17 @@ def is_available():
 
 
 def get_biome_at(mc_version, seed, x, z, y=0):
-    """Return the biome ID at world coordinates (x, y, z) for the given seed.
-
-    Uses scale=1 (block coordinates).
-    """
+    """Return the biome ID at world coordinates (x, y, z) for the given seed."""
     if not _lib:
         raise RuntimeError("cubiomes library not available")
     return _lib.INTERFACE_getBiomeAt(mc_version, seed, 0, x, y, z)
 
 
-def get_biome_at_scale4(mc_version, seed, biome_x, biome_z):
-    """Return the biome ID at biome-grid coordinates for the given seed.
-
-    Uses scale=4 — each unit is one 4×4 biome cell.
-    biome_x = chunk_x * 4 + grid_x  (grid_x in 0..3)
-    biome_z = chunk_z * 4 + grid_z
-    """
-    if not _lib:
-        raise RuntimeError("cubiomes library not available")
-    return _lib.INTERFACE_getBiomeAtScale(mc_version, seed, 0, 4, biome_x, 255, biome_z)
-
-
 def check_biomes_exact(mc_version, seed, cx, cz, packet_biomes):
     """Exact-match all 16 biome cells against cubiomes predictions.
 
-    Packet biomes are in X→Z→Y order (1024 = 4×4×64).
-    1.16.5 overworld is 2D — all Y layers share the same values,
-    so only the first layer (indices 0..15, Y=0) is compared.
-
-    Grid cell (gx, gz) maps to world corner coordinate:
-        block_x = cx * 16 + gx * 4
-        block_z = cz * 16 + gz * 4
-
-    Args:
-        mc_version:     MCVersion constant (e.g. MCVersion.MC_1_16_5 = 20)
-        seed:           64-bit world seed
-        cx, cz:         chunk coordinates
-        packet_biomes:  list of 1024 biome IDs from the ChunkData packet
-
-    Returns:
-        (match_count: int, mismatches: list of (gx, gz, expected, actual))
+    Uses scale=4 (biome-grid coordinates) when the recompiled DLL is
+    available, otherwise falls back to scale=1 (block coordinates).
     """
     if not _lib:
         return 16, []  # no validator, passthrough
@@ -106,10 +85,17 @@ def check_biomes_exact(mc_version, seed, cx, cz, packet_biomes):
     mismatches = []
     for gx in range(4):
         for gz in range(4):
-            # Scale-4 biome coordinates — direct match to the 4×4 grid
-            biome_x = cx * 4 + gx
-            biome_z = cz * 4 + gz
-            expected = _lib.INTERFACE_getBiomeAtScale(mc_version, seed, 0, 4, biome_x, 255, biome_z)
+            if _has_scale4:
+                biome_x = cx * 4 + gx
+                biome_z = cz * 4 + gz
+                expected = _lib.INTERFACE_getBiomeAtScale(
+                    mc_version, seed, 0, 4, biome_x, 255, biome_z)
+            else:
+                # Fallback: scale=1 with block corner coordinates
+                bx = cx * 16 + gx * 4
+                bz = cz * 16 + gz * 4
+                expected = _lib.INTERFACE_getBiomeAt(
+                    mc_version, seed, 0, bx, 255, bz)
 
             # Packet biomes: X→Z→Y order.  Y=0 layer is indices 0..15.
             idx = gz * 4 + gx
@@ -121,3 +107,17 @@ def check_biomes_exact(mc_version, seed, cx, cz, packet_biomes):
                 mismatches.append((gx, gz, expected, actual))
 
     return matches, mismatches
+
+
+_warned_fallback = False
+
+
+def maybe_warn_fallback():
+    """Print one-time warning if using scale=1 fallback."""
+    global _warned_fallback
+    if _lib and not _has_scale4 and not _warned_fallback:
+        print("WARNING: cubiomes DLL lacks INTERFACE_getBiomeAtScale.",
+              "Biome matching uses scale=1 fallback.",
+              "Recompile lib.dll / lib.so with newlib.c from this repo for scale=4.",
+              file=sys.stderr)
+        _warned_fallback = True
