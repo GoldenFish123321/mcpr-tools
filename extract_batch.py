@@ -370,79 +370,43 @@ if __name__ == '__main__':
     for eid, ent in entity_state.items():
         ecx, ecz = int(ent['x']) >> 4, int(ent['z']) >> 4
         entity_by_chunk.setdefault((ecx, ecz), []).append(ent)
-
-    def make_entity_nbt(ent):
-        e = nbt_tag.Compound()
-        e["id"] = nbt_tag.String(entity_name(ent['type']))
-        e["Pos"] = nbt_tag.List[nbt_tag.Double]([
-            nbt_tag.Double(ent['x']), nbt_tag.Double(ent['y']), nbt_tag.Double(ent['z']),
-        ])
-        u = ent['uuid']
-        e["UUID"] = nbt_tag.IntArray([
-            struct.unpack('>i', u[0:4])[0], struct.unpack('>i', u[4:8])[0],
-            struct.unpack('>i', u[8:12])[0], struct.unpack('>i', u[12:16])[0],
-        ])
-        e["NoAI"] = nbt_tag.Byte(1)
-        e["PersistenceRequired"] = nbt_tag.Byte(1)
-        return e
-
-    def make_minimal_chunk(cx, cz, entities):
-        """Create a minimal air chunk containing the given entities."""
-        lv = nbt_tag.Compound()
-        lv["xPos"] = nbt_tag.Int(cx)
-        lv["zPos"] = nbt_tag.Int(cz)
-        lv["Status"] = nbt_tag.String("full")
-        lv["LastUpdate"] = nbt_tag.Long(0)
-        # 16 air sections
-        sl = nbt_tag.List[nbt_tag.Compound]()
-        for y in range(16):
-            ss = nbt_tag.Compound()
-            ss["Y"] = nbt_tag.Byte(y)
-            pl = nbt_tag.List[nbt_tag.Compound]()
-            e = nbt_tag.Compound(); e["Name"] = nbt_tag.String("minecraft:air"); pl.append(e)
-            ss["Palette"] = pl
-            ss["BlockStates"] = nbt_tag.LongArray([0] * 64)
-            sl.append(ss)
-        lv["Sections"] = sl
-        lv["Heightmaps"] = nbt_tag.Compound()
-        lv["Biomes"] = nbt_tag.IntArray([1] * 1024)
-        lv["Entities"] = nbt_tag.List[nbt_tag.Compound](entities)
-        lv["TileEntities"] = nbt_tag.List[nbt_tag.Compound]([])
-        lv["TileTicks"] = nbt_tag.List[nbt_tag.Compound]([])
-        lv["LiquidTicks"] = nbt_tag.List[nbt_tag.Compound]([])
-        lv["Structures"] = nbt_tag.Compound()
-        lv["InhabitedTime"] = nbt_tag.Long(0)
-        lv["isLightOn"] = nbt_tag.Byte(0)
-        root = nbt_tag.Compound()
-        root["Level"] = lv
-        root["DataVersion"] = nbt_tag.Int(2586)
-        buf = io.BytesIO()
-        NBTFile(root, gzipped=False, byteorder='big').write(buf)
-        return zlib.compress(buf.getvalue())
-
     injected = 0
-    created = 0
-    for (cx, cz), ents_in_chunk in entity_by_chunk.items():
-        ent_list = nbt_tag.List[nbt_tag.Compound]()
-        for ent in ents_in_chunk:
-            ent_list.append(make_entity_nbt(ent))
-
-        rx, rz = cx >> 5, cz >> 5
-        lx, lz = cx % 32, cz % 32
-        if lx < 0: lx += 32
-        if lz < 0: lz += 32
-        rd = os.path.join(chunk_dir, f'{rx}.{rz}')
-        os.makedirs(rd, exist_ok=True)
-        cp = os.path.join(rd, f'{lx}.{lz}')
-
-        if os.path.exists(cp):
-            # Existing chunk — inject entities
+    for dname in sorted(os.listdir(chunk_dir)):
+        dp = os.path.join(chunk_dir, dname)
+        if not os.path.isdir(dp): continue
+        rx, rz = int(dname.split('.')[0]), int(dname.split('.')[1])
+        for cn in os.listdir(dp):
+            cp = os.path.join(dp, cn)
             try:
+                lx, lz = map(int, cn.split('.'))
+                cx, cz = rx * 32 + lx, rz * 32 + lz
+                ents_in_chunk = entity_by_chunk.get((cx, cz))
+                if not ents_in_chunk: continue
+
+                # Read, parse, inject entities, re-serialize
                 with open(cp, 'rb') as cf:
                     raw = cf.read()
                 data = zlib.decompress(raw[5:5 + struct.unpack('>I', raw[:4])[0] - 1])
                 root = NBTFile.load(io.BytesIO(data), gzipped=False)
-                root["Level"]["Entities"] = ent_list
+                lv = root["Level"]
+
+                ent_list = nbt_tag.List[nbt_tag.Compound]()
+                for ent in ents_in_chunk:
+                    e = nbt_tag.Compound()
+                    e["id"] = nbt_tag.String(entity_name(ent['type']))
+                    e["Pos"] = nbt_tag.List[nbt_tag.Double]([
+                        nbt_tag.Double(ent['x']), nbt_tag.Double(ent['y']), nbt_tag.Double(ent['z']),
+                    ])
+                    u = ent['uuid']
+                    e["UUID"] = nbt_tag.IntArray([
+                        struct.unpack('>i', u[0:4])[0], struct.unpack('>i', u[4:8])[0],
+                        struct.unpack('>i', u[8:12])[0], struct.unpack('>i', u[12:16])[0],
+                    ])
+                    e["NoAI"] = nbt_tag.Byte(1)
+                    e["PersistenceRequired"] = nbt_tag.Byte(1)
+                    ent_list.append(e)
+                lv["Entities"] = ent_list
+
                 buf = io.BytesIO()
                 NBTFile(root, gzipped=False, byteorder='big').write(buf)
                 compressed = zlib.compress(buf.getvalue())
@@ -452,23 +416,7 @@ if __name__ == '__main__':
                 injected += len(ent_list)
             except:
                 continue
-        else:
-            # No chunk — create minimal air chunk with entities
-            try:
-                compressed = make_minimal_chunk(cx, cz, ent_list)
-                new_entry = struct.pack('>I', len(compressed) + 1) + b'\x02' + compressed
-                with open(cp, 'wb') as cf:
-                    cf.write(new_entry)
-                injected += len(ent_list)
-                created += 1
-            except:
-                continue
-
-    print(f"  {injected} entities in {len(entity_by_chunk)} chunks", end='')
-    if created:
-        print(f" ({created} new chunks created)")
-    else:
-        print()
+    print(f"  {injected} entities injected into chunks")
 
     # --- Assemble MCA ---
     print(f"\n[*] Assembling MCA...")
