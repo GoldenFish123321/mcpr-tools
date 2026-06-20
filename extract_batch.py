@@ -14,6 +14,7 @@ from protocol import rv, packets
 from nbt_reader import rnbt, rnbt_disk
 from mca_writer import make_entry, write_region, CS
 from level_utils import build_level_dat
+from seed_validator import validate_chunk_biomes, is_available as seed_validator_available
 
 
 # ============================================================
@@ -37,6 +38,17 @@ if __name__ == '__main__':
 
     mcpr_dir = pos_args[0] if pos_args else 'mcpr_files'
     out_dir = pos_args[1] if len(pos_args) > 1 else 'output_survival'
+
+    # Seed biome validation setup
+    if seed is not None:
+        if seed_validator_available():
+            from cubiomespi import MCVersion
+            MC_VER = MCVersion.MC_1_16_5
+            print(f"[*] Seed: {seed} — biome validation enabled")
+        else:
+            print(f"WARNING: cubiomes library not available, --seed {seed} ignored for biome filtering",
+                  file=sys.stderr)
+            seed = None  # fall back to void world / no validation
 
     # --- Find files ---
     files = sorted(glob.glob(os.path.join(mcpr_dir, '*.mcpr')))
@@ -171,6 +183,14 @@ if __name__ == '__main__':
                                             y0_ok = False; break
                                     if not y0_ok:
                                             stats['no_bedrock'] += 1; continue
+
+                                # --- Filter ④: seed biome validation ---
+                                if seed is not None and biomes:
+                                    ok, rate = validate_chunk_biomes(
+                                        MC_VER, seed, cx, cz, biomes)
+                                    if not ok:
+                                        stats['seed_mismatch'] += 1
+                                        continue
 
                                 # --- Build chunk NBT ---
                                 lv=nbt_tag.Compound()
@@ -339,6 +359,7 @@ if __name__ == '__main__':
     print(f"  ChunkData packets scanned:  {stats['total_020']:>8,}")
     print(f"  Parse errors:               {stats['parse_error']:>8,}")
     print(f"  Rejected (no bedrock):       {stats['no_bedrock']:>8,}")
+    print(f"  Rejected (seed mismatch):    {stats['seed_mismatch']:>8,}")
     print(f"  Rejected (End biomes):      {stats['end']:>8,}")
     print(f"  Rejected (Nether biomes):   {stats['nether']:>8,}")
     print(f"  Saved (overworld): {stats['saved']:>16,}")
