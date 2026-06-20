@@ -263,9 +263,12 @@ if __name__ == '__main__':
                                                 bo = (i % new_bpl) * new_bpb
                                                 new_longs[li] |= (pid & ((1 << new_bpb) - 1)) << bo
                                             bs = new_longs
+                                        # Convert unsigned >2^63 to two's complement signed int64
+                                        MASK63 = (1 << 63)
+                                        MASK64 = (1 << 64)
+                                        bs = [v - MASK64 if v >= MASK63 else v for v in bs]
                                         ss = nbt_tag.Compound();ss["Y"] = nbt_tag.Byte(y)
-                                        bs_clamped = [b & 0xFFFFFFFFFFFFFFFF for b in bs]
-                                        ss["BlockStates"] = nbt_tag.LongArray(bs_clamped)
+                                        ss["BlockStates"] = nbt_tag.LongArray(bs)
                                         if pal is not None:
                                             pl=nbt_tag.List[nbt_tag.Compound]()
                                             if pal:
