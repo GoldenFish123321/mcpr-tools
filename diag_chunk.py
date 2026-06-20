@@ -2,7 +2,7 @@
 """Diagnostic: scan all mcpr files for ChunkData packets at a specific chunk coordinate.
 Reports: filename, timestamp, full/partial, biomes (first 10), seed match result.
 """
-import zipfile, struct, os, sys, glob
+import zipfile, struct, os, sys, glob, io
 
 from protocol import rv, packets
 from nbt_reader import rnbt
@@ -42,7 +42,7 @@ if __name__ == '__main__':
                     recording = zf.read('recording.tmcpr')
                 except KeyError:
                     continue
-                for ts, pid, payload in packets(recording):
+                for ts, pid, payload in packets(io.BytesIO(recording)):
                     if pid != 0x22:
                         continue
                     o = 0
@@ -54,7 +54,6 @@ if __name__ == '__main__':
                     full = payload[o] != 0; o += 1
                     mask, o = rv(payload, o)
 
-                    # Read biomes
                     hm, o = rnbt(payload, o)
                     biomes = None
                     if full:
@@ -66,7 +65,6 @@ if __name__ == '__main__':
                             b, o = rv(payload, o)
                             biomes.append(b)
 
-                    # Seed match check
                     seed_result = "N/A"
                     if seed is not None and biomes:
                         matched, info = check_biomes_exact(MC_VER, seed, cx, cz, biomes)
@@ -77,6 +75,8 @@ if __name__ == '__main__':
                     sections = bin(mask).count('1') if mask else 0
                     print(f"  {fn:45s} ts={ts:>10d}  {kind:7s}  sections={sections}  biomes={bio_preview}  seed={seed_result}")
         except Exception as e:
+            import traceback
             print(f"  {fn}: ERROR {e}")
+            traceback.print_exc()
 
     print(f"\nTotal hits for chunk({target_cx},{target_cz}): {total_hits}")
