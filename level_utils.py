@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Build level.dat NBT — canonical from extract_batch.py lines 442-484."""
+"""Build level.dat NBT — single source of truth for all callers."""
 from nbtlib import tag as nbt_tag
 
 
-def build_level_dat(
-    level_name="survival_world",
-    generator_name="flat",
-    generator_options="3;minecraft:air;64;minecraft:the_void",
-):
+def build_level_dat(level_name="survival_world", seed=None):
     """Return the root Compound for a Minecraft 1.16.5 level.dat.
 
-    All callers share this single source of truth.
+    If seed is None: void flat world (no terrain generation, no structures).
+    If seed is set:  default generator with the given seed (real terrain).
     """
+    if seed is not None:
+        generator_name = "default"
+        generator_options = ""
+        map_features = 1
+    else:
+        generator_name = "flat"
+        generator_options = "3;minecraft:air;64;minecraft:the_void"
+        map_features = 0
+
     world_root = nbt_tag.Compound()
     data = nbt_tag.Compound()
 
@@ -28,7 +34,7 @@ def build_level_dat(
     data["allowCommands"] = nbt_tag.Byte(1)    # Cheats
     data["Difficulty"] = nbt_tag.Byte(0)
     data["hasBeenLoadedInCreative"] = nbt_tag.Byte(1)
-    data["RandomSeed"] = nbt_tag.Long(0)
+    data["RandomSeed"] = nbt_tag.Long(seed if seed is not None else 0)
     data["GameRules"] = nbt_tag.Compound()
     data["initialized"] = nbt_tag.Byte(1)
     data["Time"] = nbt_tag.Long(0)
@@ -46,7 +52,7 @@ def build_level_dat(
     data["generatorName"] = nbt_tag.String(generator_name)
     data["generatorOptions"] = nbt_tag.String(generator_options)
     data["generatorVersion"] = nbt_tag.Int(0)
-    data["MapFeatures"] = nbt_tag.Byte(0)
+    data["MapFeatures"] = nbt_tag.Byte(map_features)
 
     # Player
     pl = nbt_tag.Compound()

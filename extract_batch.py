@@ -20,8 +20,23 @@ from level_utils import build_level_dat
 # MAIN
 # ============================================================
 if __name__ == '__main__':
-    mcpr_dir = sys.argv[1] if len(sys.argv) > 1 else 'mcpr_files'
-    out_dir = sys.argv[2] if len(sys.argv) > 2 else 'output_survival'
+    # Parse CLI: positional args = mcpr_dir out_dir, optional --seed N
+    args = sys.argv[1:]
+    pos_args = []
+    seed = None
+    i = 0
+    while i < len(args):
+        if args[i] == '--seed' and i + 1 < len(args):
+            seed = int(args[i + 1])
+            i += 2
+        elif not args[i].startswith('--'):
+            pos_args.append(args[i])
+            i += 1
+        else:
+            i += 1
+
+    mcpr_dir = pos_args[0] if pos_args else 'mcpr_files'
+    out_dir = pos_args[1] if len(pos_args) > 1 else 'output_survival'
 
     # --- Find files ---
     files = sorted(glob.glob(os.path.join(mcpr_dir, '*.mcpr')))
@@ -317,7 +332,7 @@ if __name__ == '__main__':
     # --- Write level.dat ---
     print(f"\n[*] Writing level.dat...")
     lvl_path = os.path.join(out_dir, 'survival_world', 'level.dat')
-    NBTFile(build_level_dat(), gzipped=True, byteorder='big').save(lvl_path)
+    NBTFile(build_level_dat(seed=seed), gzipped=True, byteorder='big').save(lvl_path)
 
     # --- Summary ---
     print(f"\n{'='*55}")
