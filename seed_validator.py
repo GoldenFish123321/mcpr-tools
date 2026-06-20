@@ -56,7 +56,7 @@ def get_biome_at(mc_version, seed, x, z, y=255):
     return _lib.INTERFACE_getBiomeAt(mc_version, seed, 0, x, y, z)
 
 
-def validate_chunk_biomes(mc_version, seed, cx, cz, packet_biomes, threshold=0.75):
+def validate_chunk_biomes(mc_version, seed, cx, cz, packet_biomes, threshold=0.15):
     """Check whether a chunk's biome data matches the seed's expected biomes.
 
     Args:
@@ -64,7 +64,10 @@ def validate_chunk_biomes(mc_version, seed, cx, cz, packet_biomes, threshold=0.7
         seed:        64-bit world seed
         cx, cz:      chunk coordinates
         packet_biomes: list of 1024 biome IDs from the ChunkData packet
-        threshold:   minimum fraction of matching sample points (default 0.75)
+        threshold:   minimum fraction of matching sample points (default 0.15).
+                     Low threshold avoids rejecting chunks on biome boundaries
+                     (where ~50% cells match).  Wrong-seed chunks have near-zero
+                     match rate due to unrelated biome maps.
 
     Returns:
         (passed: bool, match_rate: float)
