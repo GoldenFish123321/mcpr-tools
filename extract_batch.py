@@ -223,8 +223,8 @@ if __name__ == '__main__':
                                     if not y0_ok:
                                             stats['no_bedrock'] += 1; continue
 
-                                # --- Filter ④: exact seed biome match ---
-                                if seed is not None and biomes:
+                                # --- Filter ④: exact seed biome match (full chunks only) ---
+                                if seed is not None and biomes and full:
                                     matched, _ = check_biomes_exact(
                                         MC_VER, seed, cx, cz, biomes)
                                     if matched != 16:
