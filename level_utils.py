@@ -5,8 +5,8 @@ from nbtlib import tag as nbt_tag
 
 def build_level_dat(
     level_name="survival_world",
-    generator_name="default",
-    generator_options="",
+    generator_name="flat",
+    generator_options="3;minecraft:air;64;minecraft:the_void",
 ):
     """Return the root Compound for a Minecraft 1.16.5 level.dat.
 
@@ -46,6 +46,7 @@ def build_level_dat(
     data["generatorName"] = nbt_tag.String(generator_name)
     data["generatorOptions"] = nbt_tag.String(generator_options)
     data["generatorVersion"] = nbt_tag.Int(0)
+    data["MapFeatures"] = nbt_tag.Byte(0)
 
     # Player
     pl = nbt_tag.Compound()
