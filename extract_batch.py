@@ -328,11 +328,10 @@ if __name__ == '__main__':
                                 stats['parse_error'] += 1
                                 file_errors += 1
                                 if file_errors <= 3:
-                                    try:
-                                        print(f"    parse error: chunk({cx},{cz}) {type(exc).__name__}: {exc}", file=sys.stderr)
-                                    except:
-                                        print(f"    parse error: {type(exc).__name__}", file=sys.stderr)
-                                continue
+                                    import traceback
+                                    print(f"    parse error: chunk({cx},{cz}) {type(exc).__name__}: {exc}",
+                                          file=sys.stderr)
+                                    traceback.print_exc(file=sys.stderr)
 
                 except KeyError:
                     print(f"  [{fi+1}/{len(files)}] {fn}: SKIPPED - no recording.tmcpr inside zip",
