@@ -318,25 +318,9 @@ if __name__ == '__main__':
                             if decode_block(i, bpb0, bs0, pal0) != 'minecraft:bedrock':
                                 y0_ok = False; break
                         if not y0_ok:
-                            stats['no_bedrock'] += 1; continue
+                                stats['no_bedrock'] += 1; continue
 
-                        # Skyblock filter: count sections with any non-air blocks
-                        non_air = 0
-                        for y in range(16):
-                            if secs[y] is not None:
-                                bpb_s, pal_s, bs_s = secs[y]
-                                if pal_s is not None:
-                                    has_block = False
-                                    for bid in pal_s:
-                                        if bn(bid) != 'minecraft:air':
-                                            has_block = True; break
-                                    if has_block: non_air += 1
-                                else:
-                                    non_air += 1
-                        if non_air < 5:
-                            stats['no_bedrock'] += 1; continue
-
-                    # --- Build NBT ---
+                        # Build NBT
                     lv=nbt_tag.Compound()
                     lv["xPos"]=nbt_tag.Int(cx);lv["zPos"]=nbt_tag.Int(cz)
                     lv["Status"]=nbt_tag.String("full");lv["LastUpdate"]=nbt_tag.Long(0)
