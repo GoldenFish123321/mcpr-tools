@@ -194,12 +194,7 @@ if __name__ == '__main__':
     stats = Counter()
     total = 0
 
-    # Files to skip (mc.mimicraft.cn — completely different server)
-    SKIP_FILES = {'2022_06_21_12_50_26.mcpr', '2022_06_21_13_31_40.mcpr'}
     for fi, fp in enumerate(files):
-        if os.path.basename(fp) in SKIP_FILES:
-            print(f"  [{fi+1}/{len(files)}] {os.path.basename(fp)}: SKIPPED (mc.mimicraft.cn)")
-            continue
         fn = os.path.basename(fp)
         size_mb = os.path.getsize(fp) // 1024 // 1024
         t0 = time.time()
