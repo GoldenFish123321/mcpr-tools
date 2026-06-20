@@ -263,7 +263,9 @@ if __name__ == '__main__':
                                                 bo = (i % new_bpl) * new_bpb
                                                 new_longs[li] |= (pid & ((1 << new_bpb) - 1)) << bo
                                             bs = new_longs
-                                        ss = nbt_tag.Compound();ss["Y"] = nbt_tag.Byte(y);ss["BlockStates"] = nbt_tag.LongArray(bs)
+                                        ss = nbt_tag.Compound();ss["Y"] = nbt_tag.Byte(y)
+                                        bs_clamped = [b & 0xFFFFFFFFFFFFFFFF for b in bs]
+                                        ss["BlockStates"] = nbt_tag.LongArray(bs_clamped)
                                         if pal is not None:
                                             pl=nbt_tag.List[nbt_tag.Compound]()
                                             if pal:
