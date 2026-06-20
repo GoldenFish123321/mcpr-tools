@@ -49,22 +49,19 @@ pip install nbtlib minecraft-data
 pip install cubiomespi
 ```
 
-`cubiomespi` 的 pip 包只提供 Windows `.dll`。**Windows 和 Linux 都需要重新编译**才能使用 scale=4 精确匹配：
+仓库自带预编译的 `lib.dll`（Windows）和 `lib.so`（Linux）——**无需手动编译**。`seed_validator.py` 会自动找到它们。
+
+如果因为某些原因需要自行编译（例如升级 cubiomes 版本），参考以下步骤：
 
 **Windows (PowerShell)**：
 ```powershell
-# 1. 安装 gcc (MinGW)
-# 2. 克隆 cubiomes 源码
 git clone https://github.com/Cubitect/cubiomes.git
-# 3. 编译 lib.dll（使用仓库中的 newlib.c）
 cd cubiomes
 gcc -shared -o lib.dll -fPIC -O2 `
   path\to\mcpr-tools\newlib.c `
   util.c noise.c layers.c generator.c finders.c biomes.c biomenoise.c quadbase.c `
   -I. -lm
-# 4. 替换 pip 包中的 dll
-$pkgDir = python -c "import cubiomespi; from pathlib import Path; print(Path(cubiomespi.__file__).parent / 'lib')"
-cp lib.dll $pkgDir\
+cp lib.dll path\to\mcpr-tools\
 ```
 
 **Linux**：
@@ -75,7 +72,7 @@ gcc -shared -o lib.so -fPIC -O2 \
   /path/to/mcpr-tools/newlib.c \
   util.c noise.c layers.c generator.c finders.c biomes.c biomenoise.c quadbase.c \
   -I. -lm
-cp lib.so $(python3 -c "import cubiomespi; from pathlib import Path; print(Path(cubiomespi.__file__).parent / 'lib')")/
+cp lib.so /path/to/mcpr-tools/
 ```
 
 不编译也可以：脚本会自动回退到 scale=1，功能正常但匹配精度略低。

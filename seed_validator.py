@@ -18,14 +18,30 @@ except ImportError:
 
 
 def _load_lib():
-    """Find and load the cubiomes shared library."""
+    """Find and load the cubiomes shared library.
+
+    Checks (in order):
+      1. lib.dll / lib.so in this script's directory (pre-compiled in repo)
+      2. cubiomespi pip package library directory
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    if platform.system() == 'Windows':
+        lib_name = 'lib.dll'
+    else:
+        lib_name = 'lib.so'
+
+    # 1. Repo directory — pre-compiled, includes INTERFACE_getBiomeAtScale
+    repo_path = os.path.join(script_dir, lib_name)
+    if os.path.exists(repo_path):
+        return ctypes.CDLL(repo_path)
+
+    # 2. Fall back to pip package location
     if _pkg_dir:
-        if platform.system() == 'Windows':
-            path = os.path.join(_pkg_dir, 'lib', 'lib.dll')
-        else:
-            path = os.path.join(_pkg_dir, 'lib', 'lib.so')
+        path = os.path.join(_pkg_dir, 'lib', lib_name)
         if os.path.exists(path):
             return ctypes.CDLL(path)
+
     return None
 
 
