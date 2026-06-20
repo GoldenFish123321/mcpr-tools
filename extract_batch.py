@@ -324,9 +324,14 @@ if __name__ == '__main__':
                                 kept+=1
                                 stats['saved'] += 1
 
-                            except:
+                            except Exception as exc:
                                 stats['parse_error'] += 1
                                 file_errors += 1
+                                if file_errors <= 3:
+                                    try:
+                                        print(f"    parse error: chunk({cx},{cz}) {type(exc).__name__}: {exc}", file=sys.stderr)
+                                    except:
+                                        print(f"    parse error: {type(exc).__name__}", file=sys.stderr)
                                 continue
 
                 except KeyError:
