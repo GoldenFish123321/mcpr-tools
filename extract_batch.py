@@ -8,176 +8,13 @@ Filters (two layers):
 import zipfile, struct, os, sys, glob, zlib, io, time, shutil, math
 from collections import Counter
 from nbtlib import File as NBTFile, tag as nbt_tag
-import minecraft_data
 
-# ============================================================
-# Setup
-# ============================================================
-mc = minecraft_data("1.16.5")
-# Load official state_id → properties mapping from data generator
-import json as _json
-_reports_path = os.path.join(os.path.dirname(__file__), "blocks.json")
-_STATE_PROPS = {}
-if os.path.exists(_reports_path):
-    with open(_reports_path) as f:
-        _reports = _json.load(f)
-    for name, data in _reports.items():
-        for s in data["states"]:
-            _STATE_PROPS[s["id"]] = (name, s.get("properties", {}))
+from block_data import bn, bp, END_BIOMES, NETHER_BIOMES
+from protocol import rv, packets
+from nbt_reader import rnbt, rnbt_disk
+from mca_writer import make_entry, write_region, CS
+from level_utils import build_level_dat
 
-def bn(bid):
-    """Return block name string for palette (no properties)."""
-    if bid in _STATE_PROPS:
-        return _STATE_PROPS[bid][0]
-    # Fallback: minecraft-data
-    for b in mc.blocks_list:
-        if b["minStateId"] <= bid <= b["maxStateId"]:
-            return "minecraft:" + b["name"]
-    return f"minecraft:block_{bid}"
-
-def bp(bid):
-    """Return (name, props_dict) for building Anvil palette entry."""
-    if bid in _STATE_PROPS:
-        return _STATE_PROPS[bid]
-    return bn(bid), {}
-
-END_BIOMES   = {9, 40, 41, 42, 43}
-NETHER_BIOMES = {8, 170, 171, 172, 173}
-
-# ============================================================
-# Streaming parser
-# ============================================================
-def rv(d, o):
-    v = 0; s = 0
-    while o < len(d):
-        b = d[o]; o += 1
-        v |= (b & 0x7F) << s
-        if not (b & 0x80): break
-        s += 7
-    return v, o
-
-def packets(fp):
-    buf = b''; off = 0
-    while True:
-        chunk = fp.read(4*1024*1024)
-        if not chunk and not buf: break
-        if chunk: buf += chunk
-        while off + 8 <= len(buf):
-            ts = struct.unpack('>i', buf[off:off+4])[0]
-            ln = struct.unpack('>i', buf[off+4:off+8])[0]
-            if ln < 0 or ln > 50_000_000: off += 1; continue
-            end = off + 8 + ln
-            if end > len(buf):
-                if not chunk: break
-                break
-            pkt = buf[off+8:end]; off = end
-            if ln == 0: continue
-            try:
-                pid = 0; s = 0; p = 0
-                while p < len(pkt):
-                    b = pkt[p]; p += 1
-                    pid |= (b & 0x7F) << s
-                    if not (b & 0x80): break
-                    s += 7
-                yield ts, pid, pkt[p:]
-            except: pass
-        if off > 0: buf = buf[off:]; off = 0
-        if not chunk and off + 8 > len(buf): break
-
-# ============================================================
-# NBT reader
-# ============================================================
-def _rs(d, o):
-    l, o = rv(d, o); return d[o:o+l].decode('utf-8','replace'), o+l
-
-class NR:
-    def __init__(s, d, o=0): s.d = d; s.o = o
-    def r(s):
-        t = s.d[s.o]; s.o += 1
-        if t == 0: return "", None, s.o
-        nl = struct.unpack('>H', s.d[s.o:s.o+2])[0]; s.o += 2
-        nm = s.d[s.o:s.o+nl].decode('utf-8','replace') if nl>0 else ""; s.o += nl
-        v, s.o = s._p(t, s.o)
-        if v is None: return "", None, s.o
-        return nm, v, s.o
-    def _p(s, t, o):
-        d = s.d
-        if t == 0: return None, o
-        if t == 1: return nbt_tag.Byte(d[o]), o+1
-        if t == 2: return nbt_tag.Short(struct.unpack('>h',d[o:o+2])[0]), o+2
-        if t == 3: return nbt_tag.Int(struct.unpack('>i',d[o:o+4])[0]), o+4
-        if t == 4: return nbt_tag.Long(struct.unpack('>q',d[o:o+8])[0]), o+8
-        if t == 5: return nbt_tag.Float(struct.unpack('>f',d[o:o+4])[0]), o+4
-        if t == 6: return nbt_tag.Double(struct.unpack('>d',d[o:o+8])[0]), o+8
-        if t == 7: l=struct.unpack('>i',d[o:o+4])[0];o+=4;return nbt_tag.ByteArray(d[o:o+l]),o+l
-        if t == 8: v,o=_rs(d,o);return nbt_tag.String(v),o
-        if t == 9:
-            ct=d[o];o+=1;l=struct.unpack('>i',d[o:o+4])[0];o+=4
-            M={1:nbt_tag.Byte,2:nbt_tag.Short,3:nbt_tag.Int,4:nbt_tag.Long,5:nbt_tag.Float,6:nbt_tag.Double,7:nbt_tag.ByteArray,8:nbt_tag.String,9:nbt_tag.List,10:nbt_tag.Compound,11:nbt_tag.IntArray,12:nbt_tag.LongArray}
-            lst=nbt_tag.List[M.get(ct,nbt_tag.Compound)]()
-            for _ in range(l): i,o=s._p(ct,o);lst.append(i)
-            return lst,o
-        if t == 10:
-            c=nbt_tag.Compound()
-            while d[o]!=0:
-                s.o=o;nm,v,o=s.r()
-                if v is not None:c[nm]=v
-            return c,o+1
-        if t == 11: l=struct.unpack('>i',d[o:o+4])[0];o+=4;return nbt_tag.IntArray([struct.unpack('>i',d[o+i*4:o+i*4+4])[0] for i in range(l)]),o+l*4
-        if t == 12: l=struct.unpack('>i',d[o:o+4])[0];o+=4;return nbt_tag.LongArray([struct.unpack('>q',d[o+i*8:o+i*8+8])[0] for i in range(l)]),o+l*8
-        return None,o
-
-def rnbt(d,o=0):
-    if o>=len(d):return None,o
-    t=d[o];o+=1
-    if t==0:return None,o
-    r=NR(d,o-1);_,v,no=r.r();return v,no
-
-# Disk-format NBT reader for tile entities (2-byte string lengths, NOT VarInt)
-def _rs_disk(d, o):
-    l = struct.unpack('>H', d[o:o+2])[0]; o += 2
-    return d[o:o+l].decode('utf-8','replace'), o+l
-
-class NRD(NR):
-    def _p(s, t, o):
-        if t == 8:
-            v, o = _rs_disk(s.d, o)
-            return nbt_tag.String(v), o
-        return super()._p(t, o)
-
-def rnbt_disk(d, o=0):
-    if o >= len(d): return None, o
-    t = d[o]; o += 1
-    if t == 0: return None, o
-    r = NRD(d, o-1)
-    _, v, no = r.r()
-    return v, no
-
-# ============================================================
-# MCA writer
-# ============================================================
-SECTOR=4096; CS=32
-
-def make_entry(nbt_root):
-    buf=io.BytesIO()
-    NBTFile(nbt_root,gzipped=False,byteorder='big').write(buf)
-    c=zlib.compress(buf.getvalue())
-    return struct.pack('>I',len(c)+1)+b'\x02'+c
-
-def write_region(path, chunks):
-    offs=[0]*(CS*CS);tss=[0]*(CS*CS);sec=2;co={}
-    for idx,data in sorted(chunks.items()):
-        s=(len(data)+SECTOR-1)//SECTOR;co[idx]=(sec,s);sec+=s
-    with open(path,'wb') as f:
-        for idx in range(CS*CS):
-            if idx in co: o,s=co[idx];offs[idx]=(o<<8)|s
-            f.write(struct.pack('>I',offs[idx]))
-        for idx in range(CS*CS):f.write(struct.pack('>I',tss[idx]))
-        for idx in range(CS*CS):
-            if idx in chunks:
-                d=chunks[idx];f.write(d)
-                pad=(SECTOR-len(d)%SECTOR)%SECTOR
-                if pad:f.write(b'\x00'*pad)
 
 # ============================================================
 # MAIN
@@ -221,11 +58,6 @@ if __name__ == '__main__':
                         for _ in range(bc):
                             if o >= len(payload): break
                             b,o=rv(payload,o);biomes.append(b)
-
-                    # Filter ②: coordinate cluster (DISABLED)
-                    # if not is_origin_cluster(cx, cz):
-                    #     stats['far_world'] += 1
-                    #     continue
 
                     # Filter ③: dimension (End/Nether)
                     if biomes:
@@ -271,24 +103,19 @@ if __name__ == '__main__':
                             if so+8>len(sd):break
                             bs.append(struct.unpack('>q',sd[so:so+8])[0]);so+=8
                         # 1.16+ aligned encoding: blocks do NOT span long boundaries.
-                        # Each long holds floor(64/bpb) blocks; remaining bits are padding.
-                        # bpb=5: 12 blocks/long → ceil(4096/12) = 342 longs
                         if bpb > 0:
-                            bpl = 64 // bpb  # blocks per long
-                            expected = (4096 + bpl - 1) // bpl  # ceil(4096 / bpl)
+                            bpl = 64 // bpb
+                            expected = (4096 + bpl - 1) // bpl
                             if len(bs) > expected:
                                 bs = bs[:expected]
-                        
+
                         secs[y]=(bpb,pal,bs)
 
-                    # --- Filter ②: bottom bedrock check + Y=1 dirt check
-                    # Y=0 layer (indices 0-255, 16×16) must be all bedrock
-                    # Y=1 layer (indices 256-511): reject if all dirt (lobby/city flat world)
+                    # --- Filter ②: bottom bedrock check + Y=1 dirt check ---
                     if secs[0] is not None:
                         bpb0, pal0, bs0 = secs[0]
                         def decode_block(idx, bpb, bs, pal):
-                            # 1.16+ aligned: blocks do NOT span long boundaries
-                            bpl = 64 // bpb  # blocks per long
+                            bpl = 64 // bpb
                             long_idx = idx // bpl
                             bit_off = (idx % bpl) * bpb
                             if long_idx < len(bs):
@@ -315,7 +142,7 @@ if __name__ == '__main__':
                         if not y0_ok:
                                 stats['no_bedrock'] += 1; continue
 
-                        # Build NBT
+                    # --- Build chunk NBT ---
                     lv=nbt_tag.Compound()
                     lv["xPos"]=nbt_tag.Int(cx);lv["zPos"]=nbt_tag.Int(cz)
                     lv["Status"]=nbt_tag.String("full");lv["LastUpdate"]=nbt_tag.Long(0)
@@ -325,7 +152,6 @@ if __name__ == '__main__':
                         if secs[y] is not None:
                             bpb, pal, bs = secs[y]
                             # Convert DIRECT palette (bpb>8, pal=None) to regular palette
-                            # Minecraft 1.16.5 has issues with mixed DIRECT/regular sections
                             if pal is None and bpb > 0:
                                 bpl_d = 64 // max(bpb, 1)
                                 # Collect unique state IDs
@@ -370,7 +196,7 @@ if __name__ == '__main__':
                             pl=nbt_tag.List[nbt_tag.Compound]()
                             e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
                             ss["Palette"]=pl
-                            ss["BlockStates"]=nbt_tag.LongArray([0]*64)  # 64 longs at bpb=1 = 4096 air blocks
+                            ss["BlockStates"]=nbt_tag.LongArray([0]*64)
                         sl.append(ss)
                     lv["Sections"]=sl
                     lv["Heightmaps"]=hm if hm else nbt_tag.Compound()
@@ -441,47 +267,8 @@ if __name__ == '__main__':
 
     # --- Write level.dat ---
     print(f"\n[*] Writing level.dat...")
-    world_root = nbt_tag.Compound()
-    data = nbt_tag.Compound()
-    # Required for Minecraft 1.16.5
-    ver = nbt_tag.Compound()
-    ver['Id'] = nbt_tag.Int(2586); ver['Name'] = nbt_tag.String('1.16.5'); ver['Snapshot'] = nbt_tag.Byte(0)
-    data['Version'] = ver
-    data['LevelName'] = nbt_tag.String('survival_world')
-    data['GameType'] = nbt_tag.Int(3)
-    data['generatorName'] = nbt_tag.String('default')
-    data['generatorOptions'] = nbt_tag.String('')
-    data['generatorVersion'] = nbt_tag.Int(0)
-    data['SpawnX'] = nbt_tag.Int(0); data['SpawnY'] = nbt_tag.Int(80); data['SpawnZ'] = nbt_tag.Int(0)
-    data['allowCommands'] = nbt_tag.Byte(1)
-    data['Difficulty'] = nbt_tag.Byte(0)
-    data['GameRules'] = nbt_tag.Compound()
-    data['RandomSeed'] = nbt_tag.Long(0)
-    data['version'] = nbt_tag.Int(19133)
-    data['initialized'] = nbt_tag.Byte(1)
-    data['Time'] = nbt_tag.Long(0)
-    data['DayTime'] = nbt_tag.Long(0)
-    data['LastPlayed'] = nbt_tag.Long(0)
-    data['SizeOnDisk'] = nbt_tag.Long(0)
-    pl = nbt_tag.Compound()
-    pl['Dimension'] = nbt_tag.String('minecraft:overworld')
-    pl['Pos'] = nbt_tag.List[nbt_tag.Double]([nbt_tag.Double(0.0), nbt_tag.Double(80.0), nbt_tag.Double(0.0)])
-    pl['Rotation'] = nbt_tag.List[nbt_tag.Float]([nbt_tag.Float(0.0), nbt_tag.Float(0.0)])
-    pl['Motion'] = nbt_tag.List[nbt_tag.Double]([nbt_tag.Double(0.0), nbt_tag.Double(0.0), nbt_tag.Double(0.0)])
-    pl['playerGameType'] = nbt_tag.Int(3)
-    pl['UUID'] = nbt_tag.IntArray([0, 0, 0, 0])
-    pl['abilities'] = nbt_tag.Compound()
-    pl['abilities']['flying'] = nbt_tag.Byte(1)
-    pl['abilities']['invulnerable'] = nbt_tag.Byte(1)
-    data['Player'] = pl
-    data['hasBeenLoadedInCreative'] = nbt_tag.Byte(1)
-    dp = nbt_tag.Compound()
-    dp['Enabled'] = nbt_tag.List[nbt_tag.String]([nbt_tag.String('vanilla')])
-    dp['Disabled'] = nbt_tag.List[nbt_tag.String]([])
-    data['DataPacks'] = dp
-    world_root['Data'] = data
     lvl_path = os.path.join(out_dir, 'survival_world', 'level.dat')
-    NBTFile(world_root, gzipped=True, byteorder='big').save(lvl_path)
+    NBTFile(build_level_dat(), gzipped=True, byteorder='big').save(lvl_path)
 
     # --- Summary ---
     print(f"\n{'='*55}")
