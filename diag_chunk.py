@@ -42,12 +42,23 @@ if __name__ == '__main__':
                     recording = zf.read('recording.tmcpr')
                 except KeyError:
                     continue
+                total_pkts = 0
+                chunk_pkts = 0
+                sample_coords = []
+                total_hits_before = total_hits
                 for ts, pid, payload in packets(io.BytesIO(recording)):
+                    total_pkts += 1
                     if pid != 0x22:
                         continue
+                    chunk_pkts += 1
                     o = 0
                     cx = struct.unpack('>i', payload[o:o+4])[0]; o += 4
                     cz = struct.unpack('>i', payload[o:o+4])[0]; o += 4
+
+                    # Collect first 5 chunk coords for debug
+                    if len(sample_coords) < 5:
+                        sample_coords.append((cx, cz))
+
                     if cx != target_cx or cz != target_cz:
                         continue
                     total_hits += 1
@@ -78,5 +89,9 @@ if __name__ == '__main__':
             import traceback
             print(f"  {fn}: ERROR {e}")
             traceback.print_exc()
+        else:
+            if total_pkts > 0:
+                tag = " ***" if total_hits > total_hits_before else ""
+                print(f"  {fn}: {total_pkts} packets, {chunk_pkts} ChunkData, samples={sample_coords}{tag}")
 
     print(f"\nTotal hits for chunk({target_cx},{target_cz}): {total_hits}")
