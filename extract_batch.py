@@ -396,7 +396,7 @@ if __name__ == '__main__':
                 with open(cp, 'rb') as cf:
                     raw = cf.read()
                 data = zlib.decompress(raw[5:5 + struct.unpack('>I', raw[:4])[0] - 1])
-                root = NBTFile.load(io.BytesIO(data), gzipped=False)
+                root = NBTFile.parse(io.BytesIO(data))
                 lv = root["Level"]
 
                 ent_list = nbt_tag.List[nbt_tag.Compound]()
@@ -423,7 +423,9 @@ if __name__ == '__main__':
                 with open(cp, 'wb') as cf:
                     cf.write(new_entry)
                 injected += len(ent_list)
-            except:
+            except Exception as e:
+                import traceback
+                print(f"    entity injection FAIL chunk({cx},{cz}): {type(e).__name__}: {e}", file=sys.stderr)
                 continue
     print(f"  {injected} entities injected into chunks")
 
