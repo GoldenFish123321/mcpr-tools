@@ -14,7 +14,7 @@ from protocol import rv, packets
 from nbt_reader import rnbt, rnbt_disk
 from mca_writer import make_entry, write_region, CS
 from level_utils import build_level_dat
-from seed_validator import validate_chunk_biomes, is_available as seed_validator_available
+from seed_validator import check_biomes_exact, is_available as seed_validator_available
 
 
 # ============================================================
@@ -184,11 +184,11 @@ if __name__ == '__main__':
                                     if not y0_ok:
                                             stats['no_bedrock'] += 1; continue
 
-                                # --- Filter ④: seed biome validation ---
+                                # --- Filter ④: exact seed biome match ---
                                 if seed is not None and biomes:
-                                    ok, rate = validate_chunk_biomes(
+                                    matched, _ = check_biomes_exact(
                                         MC_VER, seed, cx, cz, biomes)
-                                    if not ok:
+                                    if matched != 16:
                                         stats['seed_mismatch'] += 1
                                         continue
 
