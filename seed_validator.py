@@ -40,6 +40,16 @@ if _lib:
         ctypes.c_int,      # y
         ctypes.c_int,      # z
     ]
+    _lib.INTERFACE_getBiomeAtScale.restype = ctypes.c_int
+    _lib.INTERFACE_getBiomeAtScale.argtypes = [
+        ctypes.c_int,      # mcVersion
+        ctypes.c_uint64,   # seed
+        ctypes.c_int,      # dimension
+        ctypes.c_int,      # scale
+        ctypes.c_int,      # x
+        ctypes.c_int,      # y
+        ctypes.c_int,      # z
+    ]
 
 
 def is_available():
@@ -48,10 +58,25 @@ def is_available():
 
 
 def get_biome_at(mc_version, seed, x, z, y=0):
-    """Return the biome ID at world coordinates (x, y, z) for the given seed."""
+    """Return the biome ID at world coordinates (x, y, z) for the given seed.
+
+    Uses scale=1 (block coordinates).
+    """
     if not _lib:
         raise RuntimeError("cubiomes library not available")
     return _lib.INTERFACE_getBiomeAt(mc_version, seed, 0, x, y, z)
+
+
+def get_biome_at_scale4(mc_version, seed, biome_x, biome_z):
+    """Return the biome ID at biome-grid coordinates for the given seed.
+
+    Uses scale=4 — each unit is one 4×4 biome cell.
+    biome_x = chunk_x * 4 + grid_x  (grid_x in 0..3)
+    biome_z = chunk_z * 4 + grid_z
+    """
+    if not _lib:
+        raise RuntimeError("cubiomes library not available")
+    return _lib.INTERFACE_getBiomeAtScale(mc_version, seed, 0, 4, biome_x, 255, biome_z)
 
 
 def check_biomes_exact(mc_version, seed, cx, cz, packet_biomes):
@@ -81,11 +106,10 @@ def check_biomes_exact(mc_version, seed, cx, cz, packet_biomes):
     mismatches = []
     for gx in range(4):
         for gz in range(4):
-            # Corner coordinate — the 4×4 grid in Minecraft maps to these
-            bx = cx * 16 + gx * 4
-            bz = cz * 16 + gz * 4
-
-            expected = _lib.INTERFACE_getBiomeAt(mc_version, seed, 0, bx, 0, bz)
+            # Scale-4 biome coordinates — direct match to the 4×4 grid
+            biome_x = cx * 4 + gx
+            biome_z = cz * 4 + gz
+            expected = _lib.INTERFACE_getBiomeAtScale(mc_version, seed, 0, 4, biome_x, 255, biome_z)
 
             # Packet biomes: X→Z→Y order.  Y=0 layer is indices 0..15.
             idx = gz * 4 + gx
