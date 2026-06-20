@@ -41,8 +41,6 @@ def packets(fp):
                 continue
             end = off + 8 + ln
             if end > len(buf):
-                if not chunk:
-                    break
                 break
             pkt = buf[off + 8:end]
             off = end

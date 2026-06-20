@@ -30,208 +30,222 @@ if __name__ == '__main__':
 
     stats = Counter()
     total = 0
+    # Biome cache: full chunks store their biomes, partial chunks look up from here.
+    biome_cache = {}  # {(cx, cz): [biome_id, ...]}
 
     for fi, fp in enumerate(files):
         fn = os.path.basename(fp)
         size_mb = os.path.getsize(fp) // 1024 // 1024
         t0 = time.time()
-        zf = zipfile.ZipFile(fp)
         kept = 0
 
-        with zf.open('recording.tmcpr') as f:
-            for ts, pid, payload in packets(f):
-                if pid != 0x20: continue
-                stats['total_020'] += 1
+        with zipfile.ZipFile(fp) as zf:
+            with zf.open('recording.tmcpr') as f:
+                for ts, pid, payload in packets(f):
+                    if pid != 0x20: continue
+                    stats['total_020'] += 1
 
-                try:
-                    o = 0
-                    cx = struct.unpack('>i',payload[o:o+4])[0];o+=4
-                    cz = struct.unpack('>i',payload[o:o+4])[0];o+=4
-                    full = payload[o]!=0;o+=1
-                    mask,o = rv(payload,o)
+                    try:
+                        o = 0
+                        cx = struct.unpack('>i',payload[o:o+4])[0];o+=4
+                        cz = struct.unpack('>i',payload[o:o+4])[0];o+=4
+                        full = payload[o]!=0;o+=1
+                        mask,o = rv(payload,o)
 
-                    # --- Read biomes for filter ③ BEFORE building NBT ---
-                    hm,o = rnbt(payload,o)
-                    biomes=None
-                    if full:
-                        bc,o=rv(payload,o);biomes=[]
-                        for _ in range(bc):
-                            if o >= len(payload): break
-                            b,o=rv(payload,o);biomes.append(b)
+                        # --- Read biomes for filter ③ BEFORE building NBT ---
+                        hm,o = rnbt(payload,o)
+                        biomes=None
+                        if full:
+                            bc,o=rv(payload,o);biomes=[]
+                            for _ in range(bc):
+                                if o >= len(payload): break
+                                b,o=rv(payload,o);biomes.append(b)
+                            biome_cache[(cx, cz)] = biomes
+                        else:
+                            # Partial chunk: look up biomes from a previously seen full chunk
+                            biomes = biome_cache.get((cx, cz))
 
-                    # Filter ③: dimension (End/Nether)
-                    if biomes:
-                        bs = set(biomes)
-                        if bs & END_BIOMES:
-                            stats['end'] += 1; continue
-                        if bs & NETHER_BIOMES:
-                            stats['nether'] += 1; continue
+                        # Filter ③: dimension (End/Nether)
+                        if biomes:
+                            bs = set(biomes)
+                            if bs & END_BIOMES:
+                                stats['end'] += 1; continue
+                            if bs & NETHER_BIOMES:
+                                stats['nether'] += 1; continue
 
-                    # --- Parse sections ---
-                    ds,o=rv(payload,o)
-                    if ds<0 or o+ds>len(payload):continue
-                    sd=payload[o:o+ds];o+=ds
+                        # --- Parse sections ---
+                        ds,o=rv(payload,o)
+                        if ds<0 or o+ds>len(payload):continue
+                        sd=payload[o:o+ds];o+=ds
 
-                    bec,o=rv(payload,o);bes=[]
-                    for ei in range(bec):
-                        try: be,o=rnbt_disk(payload,o)
-                        except: continue
-                        if be:
-                            # Ensure sign tile entities have GlowingText (required by 1.16.5)
-                            if hasattr(be, 'get') and str(be.get('id','')) == 'minecraft:sign':
-                                if 'GlowingText' not in be:
-                                    be['GlowingText'] = nbt_tag.Byte(0)
-                            bes.append(be)
+                        bec,o=rv(payload,o);bes=[]
+                        for ei in range(bec):
+                            try: be,o=rnbt_disk(payload,o)
+                            except: continue
+                            if be:
+                                # Ensure sign tile entities have GlowingText (required by 1.16.5)
+                                if hasattr(be, 'get') and str(be.get('id','')) == 'minecraft:sign':
+                                    if 'GlowingText' not in be:
+                                        be['GlowingText'] = nbt_tag.Byte(0)
+                                bes.append(be)
 
-                    secs=[None]*16;so=0
-                    for y in range(16):
-                        if not(mask&(1<<y)):continue
-                        if so+2>len(sd):break
-                        _=struct.unpack('>H',sd[so:so+2])[0];so+=2
-                        if so>=len(sd):break
-                        bpb=sd[so];so+=1
-                        pal=None
-                        if bpb<=8:
+                        secs=[None]*16;so=0
+                        for y in range(16):
+                            if not(mask&(1<<y)):continue
+                            if so+2>len(sd):break
+                            _=struct.unpack('>H',sd[so:so+2])[0];so+=2
                             if so>=len(sd):break
-                            pl,so=rv(sd,so);pal=[]
-                            for _ in range(pl):
+                            bpb=sd[so];so+=1
+                            pal=None
+                            if bpb<=8:
                                 if so>=len(sd):break
-                                e,so=rv(sd,so);pal.append(e)
-                        if so>=len(sd):break
-                        dl,so=rv(sd,so);bs=[]
-                        for _ in range(dl):
-                            if so+8>len(sd):break
-                            bs.append(struct.unpack('>q',sd[so:so+8])[0]);so+=8
-                        # 1.16+ aligned encoding: blocks do NOT span long boundaries.
-                        if bpb > 0:
-                            bpl = 64 // bpb
-                            expected = (4096 + bpl - 1) // bpl
-                            if len(bs) > expected:
-                                bs = bs[:expected]
+                                pl,so=rv(sd,so);pal=[]
+                                for _ in range(pl):
+                                    if so>=len(sd):break
+                                    e,so=rv(sd,so);pal.append(e)
+                            if so>=len(sd):break
+                            dl,so=rv(sd,so);bs=[]
+                            for _ in range(dl):
+                                if so+8>len(sd):break
+                                bs.append(struct.unpack('>q',sd[so:so+8])[0]);so+=8
+                            # 1.16+ aligned encoding: blocks do NOT span long boundaries.
+                            if bpb > 0:
+                                bpl = 64 // bpb
+                                expected = (4096 + bpl - 1) // bpl
+                                if len(bs) > expected:
+                                    bs = bs[:expected]
 
-                        secs[y]=(bpb,pal,bs)
+                            secs[y]=(bpb,pal,bs)
 
-                    # --- Filter ②: bottom bedrock check + Y=1 dirt check ---
-                    if secs[0] is not None:
-                        bpb0, pal0, bs0 = secs[0]
-                        def decode_block(idx, bpb, bs, pal):
-                            bpl = 64 // bpb
-                            long_idx = idx // bpl
-                            bit_off = (idx % bpl) * bpb
-                            if long_idx < len(bs):
-                                bid = (bs[long_idx] >> bit_off) & ((1 << bpb) - 1)
-                            else:
-                                bid = 0
-                            if pal is not None:
-                                return bn(pal[bid]) if bid < len(pal) else 'unknown'
-                            return bn(bid)
+                        # --- Filter ②: bottom bedrock check + Y=1 dirt check ---
+                        if secs[0] is not None:
+                            bpb0, pal0, bs0 = secs[0]
 
-                        # Check Y=1 for all-dirt FIRST (catches flat world regardless of Y=0)
-                        y1_all_dirt = True
-                        for i in range(256, 512):
-                            if decode_block(i, bpb0, bs0, pal0) != 'minecraft:dirt':
-                                y1_all_dirt = False; break
-                        if y1_all_dirt:
-                            stats['no_bedrock'] += 1; continue
+                            def decode_block(idx, bpb, bs, pal):
+                                bpl = 64 // bpb
+                                long_idx = idx // bpl
+                                bit_off = (idx % bpl) * bpb
+                                if long_idx < len(bs):
+                                    bid = (bs[long_idx] >> bit_off) & ((1 << bpb) - 1)
+                                else:
+                                    bid = 0
+                                if pal is not None:
+                                    return bn(pal[bid]) if bid < len(pal) else 'unknown'
+                                return bn(bid)
 
-                        # Check Y=0 for all-bedrock
-                        y0_ok = True
-                        for i in range(256):
-                            if decode_block(i, bpb0, bs0, pal0) != 'minecraft:bedrock':
-                                y0_ok = False; break
-                        if not y0_ok:
+                            # Check Y=1 for all-dirt FIRST (catches flat world regardless of Y=0)
+                            y1_all_dirt = True
+                            for i in range(256, 512):
+                                if decode_block(i, bpb0, bs0, pal0) != 'minecraft:dirt':
+                                    y1_all_dirt = False; break
+                            if y1_all_dirt:
                                 stats['no_bedrock'] += 1; continue
 
-                    # --- Build chunk NBT ---
-                    lv=nbt_tag.Compound()
-                    lv["xPos"]=nbt_tag.Int(cx);lv["zPos"]=nbt_tag.Int(cz)
-                    lv["Status"]=nbt_tag.String("full");lv["LastUpdate"]=nbt_tag.Long(0)
-                    sl=nbt_tag.List[nbt_tag.Compound]()
-                    # Process existing sections, fill missing Y=0..15 with air
-                    for y in range(16):
-                        if secs[y] is not None:
-                            bpb, pal, bs = secs[y]
-                            # Convert DIRECT palette (bpb>8, pal=None) to regular palette
-                            if pal is None and bpb > 0:
-                                bpl_d = 64 // max(bpb, 1)
-                                # Collect unique state IDs
-                                seen = {}
-                                idxs = []
-                                for i in range(4096):
-                                    li = i // bpl_d
-                                    bo = (i % bpl_d) * bpb
-                                    sid = (bs[li] >> bo) & ((1 << bpb) - 1) if li < len(bs) else 0
-                                    if sid not in seen:
-                                        seen[sid] = len(seen)
-                                    idxs.append(seen[sid])
-                                # Build palette and re-encode
-                                pal = list(seen.keys())
-                                new_bpb = max(1, math.ceil(math.log2(len(pal)))) if pal else 4
-                                new_bpl = 64 // new_bpb
-                                new_longs = [0] * ((4096 + new_bpl - 1) // new_bpl)
-                                for i, pid in enumerate(idxs):
-                                    li = i // new_bpl
-                                    bo = (i % new_bpl) * new_bpb
-                                    new_longs[li] |= (pid & ((1 << new_bpb) - 1)) << bo
-                                bs = new_longs
-                            ss = nbt_tag.Compound();ss["Y"] = nbt_tag.Byte(y);ss["BlockStates"] = nbt_tag.LongArray(bs)
-                            if pal is not None:
+                            # Check Y=0 for all-bedrock
+                            y0_ok = True
+                            for i in range(256):
+                                if decode_block(i, bpb0, bs0, pal0) != 'minecraft:bedrock':
+                                    y0_ok = False; break
+                            if not y0_ok:
+                                    stats['no_bedrock'] += 1; continue
+
+                        # --- Build chunk NBT ---
+                        lv=nbt_tag.Compound()
+                        lv["xPos"]=nbt_tag.Int(cx);lv["zPos"]=nbt_tag.Int(cz)
+                        lv["LastUpdate"]=nbt_tag.Long(0)
+                        sl=nbt_tag.List[nbt_tag.Compound]()
+                        # Process existing sections, fill missing Y=0..15 with air
+                        for y in range(16):
+                            if secs[y] is not None:
+                                bpb, pal, bs = secs[y]
+                                # Convert DIRECT palette (bpb>8, pal=None) to regular palette
+                                if pal is None and bpb > 0:
+                                    bpl_d = 64 // max(bpb, 1)
+                                    # Collect unique state IDs
+                                    seen = {}
+                                    idxs = []
+                                    for i in range(4096):
+                                        li = i // bpl_d
+                                        bo = (i % bpl_d) * bpb
+                                        sid = (bs[li] >> bo) & ((1 << bpb) - 1) if li < len(bs) else 0
+                                        if sid not in seen:
+                                            seen[sid] = len(seen)
+                                        idxs.append(seen[sid])
+                                    # Build palette and re-encode
+                                    pal = list(seen.keys())
+                                    new_bpb = max(1, math.ceil(math.log2(len(pal)))) if pal else 4
+                                    new_bpl = 64 // new_bpb
+                                    new_longs = [0] * ((4096 + new_bpl - 1) // new_bpl)
+                                    for i, pid in enumerate(idxs):
+                                        li = i // new_bpl
+                                        bo = (i % new_bpl) * new_bpb
+                                        new_longs[li] |= (pid & ((1 << new_bpb) - 1)) << bo
+                                    bs = new_longs
+                                ss = nbt_tag.Compound();ss["Y"] = nbt_tag.Byte(y);ss["BlockStates"] = nbt_tag.LongArray(bs)
+                                if pal is not None:
+                                    pl=nbt_tag.List[nbt_tag.Compound]()
+                                    if pal:
+                                        for bid in pal:
+                                            name, props = bp(bid)
+                                            e=nbt_tag.Compound();e["Name"]=nbt_tag.String(name)
+                                            if props:
+                                                pc=nbt_tag.Compound()
+                                                for k,v in props.items():
+                                                    pc[k]=nbt_tag.String(v)
+                                                e["Properties"]=pc
+                                            pl.append(e)
+                                    else:
+                                        e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
+                                    ss["Palette"]=pl
+                            else:
+                                # Missing section → fill with air
+                                ss=nbt_tag.Compound();ss["Y"]=nbt_tag.Byte(y)
                                 pl=nbt_tag.List[nbt_tag.Compound]()
-                                if pal:
-                                    for bid in pal:
-                                        name, props = bp(bid)
-                                        e=nbt_tag.Compound();e["Name"]=nbt_tag.String(name)
-                                        if props:
-                                            pc=nbt_tag.Compound()
-                                            for k,v in props.items():
-                                                pc[k]=nbt_tag.String(v)
-                                            e["Properties"]=pc
-                                        pl.append(e)
-                                else:
-                                    e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
+                                e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
                                 ss["Palette"]=pl
+                                ss["BlockStates"]=nbt_tag.LongArray([0]*64)
+                            sl.append(ss)
+                        lv["Sections"]=sl
+                        # Heightmaps: use real data from packet if available.
+                        # If missing, set Status="spawn" to force the game to recalculate
+                        # light and heightmaps on load (avoids all-zero heightmap bugs).
+                        if hm and dict(hm):
+                            lv["Heightmaps"] = hm
+                            lv["Status"] = nbt_tag.String("full")
                         else:
-                            # Missing section → fill with air
-                            ss=nbt_tag.Compound();ss["Y"]=nbt_tag.Byte(y)
-                            pl=nbt_tag.List[nbt_tag.Compound]()
-                            e=nbt_tag.Compound();e["Name"]=nbt_tag.String("minecraft:air");pl.append(e)
-                            ss["Palette"]=pl
-                            ss["BlockStates"]=nbt_tag.LongArray([0]*64)
-                        sl.append(ss)
-                    lv["Sections"]=sl
-                    lv["Heightmaps"]=hm if hm else nbt_tag.Compound()
-                    if not dict(lv["Heightmaps"]):lv["Heightmaps"]["MOTION_BLOCKING"]=nbt_tag.LongArray([0]*36)
-                    lv["Biomes"]=nbt_tag.IntArray(biomes if biomes else [1]*1024)
-                    tl=nbt_tag.List[nbt_tag.Compound]()
-                    for be in bes:tl.append(be)
-                    lv["TileEntities"]=tl
-                    lv["InhabitedTime"]=nbt_tag.Long(0);lv["isLightOn"]=nbt_tag.Byte(0)
-                    lv["Entities"]=nbt_tag.List[nbt_tag.Compound]([])
-                    lv["TileTicks"]=nbt_tag.List[nbt_tag.Compound]([])
-                    lv["LiquidTicks"]=nbt_tag.List[nbt_tag.Compound]([])
-                    lv["Structures"]=nbt_tag.Compound()
-                    root=nbt_tag.Compound();root["Level"]=lv;root["DataVersion"]=nbt_tag.Int(2586)
+                            lv["Status"] = nbt_tag.String("spawn")
+                        lv["Biomes"]=nbt_tag.IntArray(biomes if biomes else [1]*1024)
+                        tl=nbt_tag.List[nbt_tag.Compound]()
+                        for be in bes:tl.append(be)
+                        lv["TileEntities"]=tl
+                        lv["InhabitedTime"]=nbt_tag.Long(0);lv["isLightOn"]=nbt_tag.Byte(0)
+                        lv["Entities"]=nbt_tag.List[nbt_tag.Compound]([])
+                        lv["TileTicks"]=nbt_tag.List[nbt_tag.Compound]([])
+                        lv["LiquidTicks"]=nbt_tag.List[nbt_tag.Compound]([])
+                        lv["Structures"]=nbt_tag.Compound()
+                        root=nbt_tag.Compound();root["Level"]=lv;root["DataVersion"]=nbt_tag.Int(2586)
 
-                    chunk_bytes = make_entry(root)
+                        chunk_bytes = make_entry(root)
 
-                    # --- Save to _chunks/ ---
-                    rx,rz=cx>>5,cz>>5
-                    lx,lz=cx%32,cz%32
-                    if lx<0:lx+=32
-                    if lz<0:lz+=32
+                        # --- Save to _chunks/ ---
+                        rx,rz=cx>>5,cz>>5
+                        lx,lz=cx%32,cz%32
+                        if lx<0:lx+=32
+                        if lz<0:lz+=32
 
-                    rd=os.path.join(chunk_dir,f'{rx}.{rz}')
-                    os.makedirs(rd,exist_ok=True)
-                    cf_path = os.path.join(rd,f'{lx}.{lz}')
+                        rd=os.path.join(chunk_dir,f'{rx}.{rz}')
+                        os.makedirs(rd,exist_ok=True)
+                        cf_path = os.path.join(rd,f'{lx}.{lz}')
 
-                    with open(cf_path,'wb') as cf:
-                        cf.write(chunk_bytes)
-                    kept+=1
-                    stats['saved'] += 1
+                        with open(cf_path,'wb') as cf:
+                            cf.write(chunk_bytes)
+                        kept+=1
+                        stats['saved'] += 1
 
-                except: continue
+                    except:
+                        stats['parse_error'] += 1
+                        continue
 
-        zf.close()
         total += kept
         elapsed = time.time()-t0
         print(f"  [{fi+1}/{len(files)}] {fn} ({size_mb}MB): {kept} chunks ({elapsed:.0f}s) [{total} total]")
@@ -273,6 +287,7 @@ if __name__ == '__main__':
     # --- Summary ---
     print(f"\n{'='*55}")
     print(f"  ChunkData packets scanned:  {stats['total_020']:>8,}")
+    print(f"  Parse errors:               {stats['parse_error']:>8,}")
     print(f"  Rejected (no bedrock):       {stats['no_bedrock']:>8,}")
     print(f"  Rejected (End biomes):      {stats['end']:>8,}")
     print(f"  Rejected (Nether biomes):   {stats['nether']:>8,}")
