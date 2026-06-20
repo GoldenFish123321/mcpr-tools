@@ -16,7 +16,7 @@ import minecraft_data
 mc = minecraft_data("1.16.5")
 # Load official state_id → properties mapping from data generator
 import json as _json
-_reports_path = os.path.join(os.path.dirname(__file__), "..", "generated", "reports", "blocks.json")
+_reports_path = os.path.join(os.path.dirname(__file__), "blocks.json")
 _STATE_PROPS = {}
 if os.path.exists(_reports_path):
     with open(_reports_path) as f:
