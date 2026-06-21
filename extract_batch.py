@@ -90,7 +90,15 @@ if __name__ == '__main__':
                                     ex = struct.unpack('>d', payload[o:o+8])[0]; o += 8
                                     ey = struct.unpack('>d', payload[o:o+8])[0]; o += 8
                                     ez = struct.unpack('>d', payload[o:o+8])[0]; o += 8
-                                    entity_state[eid] = {'type': etype, 'x': ex, 'y': ey, 'z': ez, 'uuid': uuid_bytes}
+                                    # Skip yaw(1)+pitch(1)+head_pitch(1)+vx(2)+vy(2)+vz(2) = 9 bytes
+                                    o += 9
+                                    # Parse entity metadata
+                                    from entity_registry import parse_entity_metadata as _pem
+                                    meta, _ = _pem(payload, o)
+                                    entity_state[eid] = {
+                                        'type': etype, 'x': ex, 'y': ey, 'z': ez,
+                                        'uuid': uuid_bytes, 'meta': meta,
+                                    }
                                 except: pass
                                 continue
                             elif pid == 0x56: # Entity Teleport
@@ -113,6 +121,16 @@ if __name__ == '__main__':
                                     for _ in range(count):
                                         eid, o = rv(payload, o)
                                         entity_state.pop(eid, None)
+                                except: pass
+                                continue
+                            elif pid == 0x44: # Entity Metadata — merge into existing state
+                                try:
+                                    o = 0
+                                    eid, o = rv(payload, o)
+                                    from entity_registry import parse_entity_metadata as _pem
+                                    new_meta, _ = _pem(payload, o)
+                                    if eid in entity_state:
+                                        entity_state[eid].setdefault('meta', {}).update(new_meta)
                                 except: pass
                                 continue
 
@@ -418,6 +436,11 @@ if __name__ == '__main__':
                         struct.unpack('>i', u[0:4])[0], struct.unpack('>i', u[4:8])[0],
                         struct.unpack('>i', u[8:12])[0], struct.unpack('>i', u[12:16])[0],
                     ])
+                    # Apply armor stand metadata (Invisible, CustomName, etc.)
+                    if ent['type'] == 1 and ent.get('meta'):
+                        from entity_registry import armor_stand_meta_to_nbt
+                        for k, v in armor_stand_meta_to_nbt(ent['meta']).items():
+                            e[k] = v
                     e["NoAI"] = nbt_tag.Byte(1)
                     e["PersistenceRequired"] = nbt_tag.Byte(1)
                     ent_list.append(e)

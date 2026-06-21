@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Minecraft 1.16.5 (protocol 754) BuiltInRegistries.ENTITY_TYPE mapping.
 
-Protocol-level entity type ID → "minecraft:name" string.
-Source: wiki.vg Entity metadata + ViaVersion Entity1_16Types.
+Auto-generated from PrismarineJS/minecraft-data data/pc/1.16.2/entities.json
+(same registry across 1.16.2–1.16.5).
 """
 ENTITY_NAMES = {
     0: "area_effect_cloud",
@@ -36,82 +36,83 @@ ENTITY_NAMES = {
     28: "fox",
     29: "ghast",
     30: "giant",
-    31: "glow_item_frame",
-    32: "glow_squid",
-    33: "goat",
-    34: "guardian",
-    35: "hoglin",
-    36: "horse",
-    37: "husk",
-    38: "illusioner",
-    39: "iron_golem",
-    40: "item",
-    41: "item_frame",
-    42: "fireball",
-    43: "leash_knot",
-    44: "lightning_bolt",
-    45: "llama",
-    46: "llama_spit",
-    47: "magma_cube",
-    48: "marker",
-    49: "minecart",
-    50: "chest_minecart",
-    51: "commandblock_minecart",
-    52: "furnace_minecart",
-    53: "hopper_minecart",
-    54: "spawner_minecart",
-    55: "tnt_minecart",
-    56: "mule",
-    57: "mooshroom",
-    58: "ocelot",
-    59: "painting",
-    60: "panda",
-    61: "parrot",
-    62: "phantom",
-    63: "pig",
-    64: "piglin",
-    65: "piglin_brute",
-    66: "pillager",
-    67: "polar_bear",
-    68: "tnt",
-    69: "pufferfish",
-    70: "rabbit",
-    71: "ravager",
-    72: "salmon",
-    73: "sheep",
-    74: "shulker",
-    75: "shulker_bullet",
-    76: "silverfish",
-    77: "skeleton",
-    78: "skeleton_horse",
-    79: "slime",
-    80: "small_fireball",
-    81: "snow_golem",
-    82: "snowball",
-    83: "spectral_arrow",
-    84: "spider",
-    85: "squid",
-    86: "stray",
-    87: "strider",
-    88: "trader_llama",
-    89: "tropical_fish",
-    90: "turtle",
-    91: "vex",
-    92: "villager",
-    93: "vindicator",
-    94: "wandering_trader",
-    95: "witch",
-    96: "wither",
-    97: "wither_skeleton",
-    98: "wither_skull",
-    99: "wolf",
-    100: "zoglin",
-    101: "zombie",
-    102: "zombie_horse",
-    103: "zombie_villager",
-    104: "zombified_piglin",
-    105: "player",
-    106: "fishing_bobber",
+    31: "guardian",
+    32: "hoglin",
+    33: "horse",
+    34: "husk",
+    35: "illusioner",
+    36: "iron_golem",
+    37: "item",
+    38: "item_frame",
+    39: "fireball",
+    40: "leash_knot",
+    41: "lightning_bolt",
+    42: "llama",
+    43: "llama_spit",
+    44: "magma_cube",
+    45: "minecart",
+    46: "chest_minecart",
+    47: "command_block_minecart",
+    48: "furnace_minecart",
+    49: "hopper_minecart",
+    50: "spawner_minecart",
+    51: "tnt_minecart",
+    52: "mule",
+    53: "mooshroom",
+    54: "ocelot",
+    55: "painting",
+    56: "panda",
+    57: "parrot",
+    58: "phantom",
+    59: "pig",
+    60: "piglin",
+    61: "piglin_brute",
+    62: "pillager",
+    63: "polar_bear",
+    64: "tnt",
+    65: "pufferfish",
+    66: "rabbit",
+    67: "ravager",
+    68: "salmon",
+    69: "sheep",
+    70: "shulker",
+    71: "shulker_bullet",
+    72: "silverfish",
+    73: "skeleton",
+    74: "skeleton_horse",
+    75: "slime",
+    76: "small_fireball",
+    77: "snow_golem",
+    78: "snowball",
+    79: "spectral_arrow",
+    80: "spider",
+    81: "squid",
+    82: "stray",
+    83: "strider",
+    84: "egg",
+    85: "ender_pearl",
+    86: "experience_bottle",
+    87: "potion",
+    88: "trident",
+    89: "trader_llama",
+    90: "tropical_fish",
+    91: "turtle",
+    92: "vex",
+    93: "villager",
+    94: "vindicator",
+    95: "wandering_trader",
+    96: "witch",
+    97: "wither",
+    98: "wither_skeleton",
+    99: "wither_skull",
+    100: "wolf",
+    101: "zoglin",
+    102: "zombie",
+    103: "zombie_horse",
+    104: "zombie_villager",
+    105: "zombified_piglin",
+    106: "player",
+    107: "fishing_bobber",
 }
 
 
@@ -121,3 +122,150 @@ def entity_name(type_id):
     if name:
         return f"minecraft:{name}"
     return f"minecraft:unknown_{type_id}"
+
+
+# ── Entity Metadata parser (1.16.5 protocol) ──────────────────
+
+import struct as _struct
+
+def _read_byte(payload, o):
+    return payload[o], o + 1
+
+def _read_varint(payload, o):
+    from protocol import rv
+    return rv(payload, o)
+
+def _read_float(payload, o):
+    return _struct.unpack('>f', payload[o:o+4])[0], o + 4
+
+def _read_string(payload, o):
+    from protocol import rv
+    length, o = rv(payload, o)
+    return payload[o:o+length].decode('utf-8', errors='replace'), o + length
+
+def _read_chat(payload, o):
+    return _read_string(payload, o)
+
+def _read_opt_chat(payload, o):
+    present = payload[o]; o += 1
+    if present:
+        return _read_string(payload, o)
+    return None, o
+
+def _read_boolean(payload, o):
+    return payload[o] != 0, o + 1
+
+def _read_slot(payload, o):
+    present = payload[o]; o += 1
+    if present:
+        from protocol import rv
+        item_id, o = rv(payload, o)
+        if item_id != -1:
+            o += 1  # count
+            from protocol import rnbt_disk
+            _, o = rnbt_disk(payload, o)  # skip NBT
+    return None, o
+
+def _read_rotation(payload, o):
+    return (_struct.unpack('>f', payload[o:o+4])[0],
+            _struct.unpack('>f', payload[o+4:o+8])[0],
+            _struct.unpack('>f', payload[o+8:o+12])[0]), o + 12
+
+def _read_position(payload, o):
+    from protocol import rv
+    val, o = rv(payload, o)
+    x = val >> 38
+    y = val & 0xFFF
+    z = (val >> 12) & 0x3FFFFFF
+    if x >= 1 << 25: x -= 1 << 26
+    if y >= 1 << 11: y -= 1 << 12
+    if z >= 1 << 25: z -= 1 << 26
+    return (x, y, z), o
+
+def _read_opt_position(payload, o):
+    if payload[o]: o += 1; return _read_position(payload, o)
+    return None, o + 1
+
+def _read_direction(payload, o):
+    from protocol import rv; return rv(payload, o)
+
+def _read_opt_uuid(payload, o):
+    if payload[o]: o += 1; return payload[o:o+16], o + 16
+    return None, o + 1
+
+def _read_block_state(payload, o):
+    from protocol import rv; return rv(payload, o)
+
+def _read_nbt(payload, o):
+    from protocol import rnbt_disk; return rnbt_disk(payload, o)
+
+def _read_particle(payload, o):
+    from protocol import rv
+    pid, o = rv(payload, o); o += 8  # skip 2 floats
+    return None, o
+
+def _read_villager_data(payload, o):
+    from protocol import rv
+    v1, o = rv(payload, o)
+    v2, o = rv(payload, o)
+    v3, o = rv(payload, o)
+    return (v1, v2, v3), o
+
+def _read_opt_varint(payload, o):
+    from protocol import rv
+    vid, o = rv(payload, o)
+    if vid > 0: return rv(payload, o)
+    return None, o
+
+def _read_pose(payload, o):
+    from protocol import rv; return rv(payload, o)
+
+_META_READERS = {
+    0: _read_byte, 1: _read_varint, 2: _read_float, 3: _read_string,
+    4: _read_chat, 5: _read_opt_chat, 6: _read_slot, 7: _read_boolean,
+    8: _read_rotation, 9: _read_position, 10: _read_opt_position,
+    11: _read_direction, 12: _read_opt_uuid, 13: _read_block_state,
+    14: _read_nbt, 15: _read_particle, 16: _read_villager_data,
+    17: _read_opt_varint, 18: _read_pose,
+}
+
+
+def parse_entity_metadata(payload, offset=0):
+    """Parse 1.16.5 entity metadata from packet payload.
+    Returns (dict of {index: value}, new_offset). Stops at 0xFF."""
+    from protocol import rv
+    meta = {}
+    while offset < len(payload):
+        index = payload[offset]; offset += 1
+        if index == 0xFF: break
+        tid, offset = rv(payload, offset)
+        reader = _META_READERS.get(tid)
+        if reader:
+            meta[index], offset = reader(payload, offset)
+        else:
+            break
+    return meta, offset
+
+
+def armor_stand_meta_to_nbt(meta):
+    """Convert armor stand metadata dict to NBT tags dict.
+    Returns {tag_name: nbt_tag_value}."""
+    import nbtlib.tag as T
+    tags = {}
+    # Index 0: status flags — bit 5 = invisible
+    if 0 in meta and meta[0] & 0x20:
+        tags['Invisible'] = T.Byte(1)
+    # Index 2: Optional Chat → CustomName
+    if 2 in meta and meta[2] is not None:
+        tags['CustomName'] = T.String(meta[2])
+    # Index 3: Boolean → CustomNameVisible
+    if 3 in meta:
+        tags['CustomNameVisible'] = T.Byte(1 if meta[3] else 0)
+    # Index 14: armor stand flags
+    if 14 in meta:
+        f = meta[14]
+        if f & 0x01: tags['Small'] = T.Byte(1)
+        tags['NoGravity'] = T.Byte(0 if (f & 0x02) else 1)  # inverted
+        if f & 0x08: tags['NoBasePlate'] = T.Byte(1)
+        if f & 0x10: tags['Marker'] = T.Byte(1)
+    return tags
