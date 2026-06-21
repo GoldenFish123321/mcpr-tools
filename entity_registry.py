@@ -268,4 +268,75 @@ def armor_stand_meta_to_nbt(meta):
         tags['NoGravity'] = T.Byte(0 if (f & 0x02) else 1)  # inverted
         if f & 0x08: tags['NoBasePlate'] = T.Byte(1)
         if f & 0x10: tags['Marker'] = T.Byte(1)
+    # Indices 16-21: Rotation (head, body, left arm, right arm, left leg, right leg)
+    POSE_KEYS = ['Head', 'Body', 'LeftArm', 'RightArm', 'LeftLeg', 'RightLeg']
+    pose_parts = {}
+    for idx, key in enumerate(POSE_KEYS):
+        if idx + 16 in meta:
+            pose_parts[key] = T.List[T.Float]([T.Float(v) for v in meta[idx + 16]])
+    if pose_parts:
+        pc = T.Compound()
+        for k, v in pose_parts.items():
+            pc[k] = v
+        tags['Pose'] = pc
+    return tags
+
+
+# ── Villager profession / type mappings (1.16.5) ──────────────
+
+VILLAGER_TYPES = {0: "desert", 1: "jungle", 2: "plains", 3: "savanna",
+                   4: "snow", 5: "swamp", 6: "taiga"}
+
+VILLAGER_PROFESSIONS = {
+    0: "none", 1: "armorer", 2: "butcher", 3: "cartographer",
+    4: "cleric", 5: "farmer", 6: "fisherman", 7: "fletcher",
+    8: "leatherworker", 9: "librarian", 10: "mason", 11: "nitwit",
+    12: "shepherd", 13: "toolsmith", 14: "weaponsmith",
+}
+
+
+def villager_meta_to_nbt(meta):
+    """Convert villager metadata (index 16: VillagerData) to NBT."""
+    if 16 not in meta: return {}
+    import nbtlib.tag as T
+    vtype_id, profession_id, level = meta[16]
+    vd = T.Compound()
+    vd["level"] = T.Int(level)
+    vd["profession"] = T.String(
+        f"minecraft:{VILLAGER_PROFESSIONS.get(profession_id, 'none')}")
+    vd["type"] = T.String(
+        f"minecraft:{VILLAGER_TYPES.get(vtype_id, 'plains')}")
+    return {"VillagerData": vd}
+
+
+# ── Unified entity metadata → NBT ────────────────────────────
+
+def entity_meta_to_nbt(entity_type, meta):
+    """Build NBT tags dict from entity metadata for any entity type."""
+    import nbtlib.tag as T
+    tags = {}
+    # Index 0: status flags — bit 5 = invisible (for ALL entities)
+    if 0 in meta and meta[0] & 0x20:
+        tags['Invisible'] = T.Byte(1)
+    # Index 2: Optional Chat → CustomName
+    if 2 in meta and meta[2] is not None:
+        tags['CustomName'] = T.String(meta[2])
+    # Index 3: Boolean → CustomNameVisible
+    if 3 in meta:
+        tags['CustomNameVisible'] = T.Byte(1 if meta[3] else 0)
+    # Health — set for living entities (metadata index 8=health float in 1.16)
+    # Actually health is in metadata index 8 for living entities
+    # But we set a safe default instead to avoid relying on partial metadata
+    # Per-entity overrides below
+
+    # Armor stand (type 1)
+    if entity_type == 1:
+        tags.update(armor_stand_meta_to_nbt(meta))
+    # Villager (type 93)
+    elif entity_type == 93:
+        tags.update(villager_meta_to_nbt(meta))
+    # Wandering trader (type 95) - same VillagerData structure
+    elif entity_type == 95:
+        tags.update(villager_meta_to_nbt(meta))
+
     return tags

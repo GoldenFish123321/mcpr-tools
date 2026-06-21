@@ -15,7 +15,7 @@ from nbt_reader import rnbt, rnbt_disk
 from mca_writer import make_entry, write_region, CS
 from level_utils import build_level_dat
 from seed_validator import check_biomes_exact, is_available as seed_validator_available, maybe_warn_fallback
-from entity_registry import entity_name, parse_entity_metadata, armor_stand_meta_to_nbt
+from entity_registry import entity_name, parse_entity_metadata, entity_meta_to_nbt
 
 
 # ============================================================
@@ -90,9 +90,12 @@ if __name__ == '__main__':
                                     ex = struct.unpack('>d', payload[o:o+8])[0]; o += 8
                                     ey = struct.unpack('>d', payload[o:o+8])[0]; o += 8
                                     ez = struct.unpack('>d', payload[o:o+8])[0]; o += 8
-                                    # Skip yaw(1)+pitch(1)+head_pitch(1)+vx(2)+vy(2)+vz(2) = 9 bytes
-                                    o += 9
-                                    # Parse entity metadata (non-fatal: store entity even on parse error)
+                                    yaw = payload[o]; o += 1
+                                    pitch = payload[o]; o += 1
+                                    head_pitch = payload[o]; o += 1
+                                    vx = struct.unpack('>h', payload[o:o+2])[0]; o += 2
+                                    vy = struct.unpack('>h', payload[o:o+2])[0]; o += 2
+                                    vz = struct.unpack('>h', payload[o:o+2])[0]; o += 2
                                     try:
                                         meta, _ = parse_entity_metadata(payload, o)
                                     except Exception:
@@ -100,7 +103,57 @@ if __name__ == '__main__':
                                     entity_state[eid] = {
                                         'type': etype, 'x': ex, 'y': ey, 'z': ez,
                                         'uuid': uuid_bytes, 'meta': meta,
+                                        'yaw': yaw, 'pitch': pitch,
                                     }
+                                except: pass
+                                continue
+                            elif pid == 0x00:      # Spawn Entity (items, paintings, etc.)
+                                try:
+                                    o = 0
+                                    eid, o = rv(payload, o)
+                                    uuid_bytes = payload[o:o+16]; o += 16  # 1.16+
+                                    etype, o = rv(payload, o)
+                                    ex = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    ey = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    ez = struct.unpack('>d', payload[o:o+8])[0]; o += 8
+                                    pitch = payload[o]; o += 1
+                                    yaw = payload[o]; o += 1
+                                    obj_data = struct.unpack('>i', payload[o:o+4])[0]; o += 4
+                                    # vx, vy, vz (short) follow
+                                    entity_state[eid] = {
+                                        'type': etype, 'x': ex, 'y': ey, 'z': ez,
+                                        'uuid': uuid_bytes,
+                                        'yaw': yaw, 'pitch': pitch,
+                                        'obj_data': obj_data,
+                                    }
+                                except: pass
+                                continue
+                            elif pid == 0x47:      # Entity Equipment
+                                try:
+                                    o = 0
+                                    eid, o = rv(payload, o)
+                                    if eid in entity_state:
+                                        equip = entity_state[eid].setdefault('equipment', {})
+                                        while o < len(payload):
+                                            slot_byte = payload[o]; o += 1
+                                            slot_id = slot_byte & 0x7F
+                                            is_last = slot_byte & 0x80
+                                            present = payload[o]; o += 1
+                                            if present:
+                                                item_id, o = rv(payload, o)
+                                                if item_id != -1:
+                                                    count = payload[o]; o += 1
+                                                    tag, o = rnbt_disk(payload, o)
+                                                    equip[slot_id] = {
+                                                        'id': item_id, 'Count': count,
+                                                        'tag': tag,
+                                                    }
+                                                else:
+                                                    equip[slot_id] = None
+                                            else:
+                                                equip[slot_id] = None
+                                            if is_last:
+                                                break
                                 except: pass
                                 continue
                             elif pid == 0x56: # Entity Teleport
@@ -440,11 +493,48 @@ if __name__ == '__main__':
                         struct.unpack('>i', u[0:4])[0], struct.unpack('>i', u[4:8])[0],
                         struct.unpack('>i', u[8:12])[0], struct.unpack('>i', u[12:16])[0],
                     ])
-                    # Apply armor stand metadata (Invisible, CustomName, etc.)
-                    if ent['type'] == 1 and ent.get('meta'):
-                        for k, v in armor_stand_meta_to_nbt(ent['meta']).items():
+                    # Rotation from yaw/pitch (byte angle → degrees)
+                    yaw = ent.get('yaw', 0)
+                    pitch = ent.get('pitch', 0)
+                    yaw_deg = yaw * 360.0 / 256.0
+                    pitch_deg = pitch * 360.0 / 256.0
+                    e["Rotation"] = nbt_tag.List[nbt_tag.Float]([
+                        nbt_tag.Float(yaw_deg), nbt_tag.Float(pitch_deg),
+                    ])
+                    # Apply type-specific metadata NBT
+                    meta = ent.get('meta', {})
+                    if meta:
+                        for k, v in entity_meta_to_nbt(ent['type'], meta).items():
                             e[k] = v
-                    e["NoAI"] = nbt_tag.Byte(1)
+                    # Apply equipment (armor, hand items)
+                    for slot_id, item in ent.get('equipment', {}).items():
+                        if item is None:
+                            continue
+                        _item_tag = nbt_tag.Compound()
+                        _item_tag["id"] = nbt_tag.String(bn(item['id']))
+                        _item_tag["Count"] = nbt_tag.Byte(item['Count'])
+                        if item.get('tag') is not None:
+                            _item_tag["tag"] = item['tag']
+                        # Slots: 0=mainhand, 1=offhand, 2=boots, 3=leggings, 4=chestplate, 5=helmet
+                        if slot_id <= 1:
+                            _hands = e.setdefault("HandItems", nbt_tag.List[nbt_tag.Compound]([
+                                nbt_tag.Compound(), nbt_tag.Compound(),
+                            ]))
+                            _hands[slot_id] = _item_tag
+                        elif slot_id <= 5:
+                            _armor = e.setdefault("ArmorItems", nbt_tag.List[nbt_tag.Compound]([
+                                nbt_tag.Compound(), nbt_tag.Compound(),
+                                nbt_tag.Compound(), nbt_tag.Compound(),
+                            ]))
+                            _armor[slot_id - 2] = _item_tag
+                    # Object data for paintings/item frames
+                    if ent['type'] in (55, 38):  # painting=55, item_frame=38
+                        e["Facing"] = nbt_tag.Byte(ent.get('obj_data', 0))
+                    elif ent['type'] == 40:  # item
+                        _item_e = nbt_tag.Compound()
+                        _item_e["id"] = nbt_tag.String("minecraft:stone")
+                        _item_e["Count"] = nbt_tag.Byte(1)
+                        e["Item"] = _item_e
                     e["PersistenceRequired"] = nbt_tag.Byte(1)
                     ent_list.append(e)
                 lv["Entities"] = ent_list
