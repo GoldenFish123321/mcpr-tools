@@ -161,9 +161,11 @@ def _read_slot(payload, o):
         from protocol import rv
         item_id, o = rv(payload, o)
         if item_id != -1:
-            o += 1  # count
+            count = payload[o]; o += 1
             from protocol import rnbt_disk
-            _, o = rnbt_disk(payload, o)  # skip NBT
+            tag, o = rnbt_disk(payload, o)
+            return {'id': item_id, 'Count': count, 'tag': tag}, o
+        return None, o
     return None, o
 
 def _read_rotation(payload, o):
@@ -338,5 +340,18 @@ def entity_meta_to_nbt(entity_type, meta):
     # Wandering trader (type 95) - same VillagerData structure
     elif entity_type == 95:
         tags.update(villager_meta_to_nbt(meta))
+    # Item frame (type 38)
+    elif entity_type == 38:
+        from block_data import bn
+        if 7 in meta and meta[7] is not None:  # Item (Slot)
+            item = meta[7]
+            it = T.Compound()
+            it["id"] = T.String(bn(item['id']))
+            it["Count"] = T.Byte(item['Count'])
+            if item.get('tag') is not None:
+                it["tag"] = item['tag']
+            tags['Item'] = it
+        if 8 in meta:  # ItemRotation
+            tags['ItemRotation'] = T.Byte(meta[8])
 
     return tags
