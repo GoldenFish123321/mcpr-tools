@@ -67,9 +67,6 @@ if __name__ == '__main__':
     biome_cache = {}  # {(cx, cz): [biome_id, ...]}
     entity_state = {} # {entity_id: {'type': int, 'x': float, 'y': float, 'z': float, 'uuid': bytes}}
 
-    # --- Debug: trace specific chunks ---
-    DEBUG_CHUNKS = {(18, 16)}  # set of (cx, cz) to trace through filters
-
     for fi, fp in enumerate(files):
         fn = os.path.basename(fp)
         size_mb = os.path.getsize(fp) // 1024 // 1024
@@ -129,11 +126,6 @@ if __name__ == '__main__':
                                 full = payload[o]!=0;o+=1
                                 mask,o = rv(payload,o)
 
-                                # --- Debug trace ---
-                                if (cx, cz) in DEBUG_CHUNKS:
-                                    kind = "FULL" if full else "PARTIAL"
-                                    print(f"  [TRACE] {fn} ts={ts} {kind} mask={bin(mask)} sections={bin(mask).count('1')}", file=sys.stderr)
-
                                 # --- Read biomes for filter ③ BEFORE building NBT ---
                                 hm,o = rnbt(payload,o)
                                 biomes=None
@@ -143,24 +135,16 @@ if __name__ == '__main__':
                                         if o >= len(payload): break
                                         b,o=rv(payload,o);biomes.append(b)
                                     biome_cache[(cx, cz)] = biomes
-                                    if (cx, cz) in DEBUG_CHUNKS:
-                                        print(f"  [TRACE] {fn} biomes={biomes[:20]}", file=sys.stderr)
                                 else:
                                     # Partial chunk: look up biomes from a previously seen full chunk
                                     biomes = biome_cache.get((cx, cz))
-                                    if (cx, cz) in DEBUG_CHUNKS:
-                                        print(f"  [TRACE] {fn} partial, cached_biomes={biomes[:20] if biomes else 'MISS'}", file=sys.stderr)
 
                                 # Filter ③: dimension (End/Nether)
                                 if biomes:
                                     bs = set(biomes)
                                     if bs & END_BIOMES:
-                                        if (cx, cz) in DEBUG_CHUNKS:
-                                            print(f"  [TRACE] {fn} REJECTED: End biome", file=sys.stderr)
                                         stats['end'] += 1; continue
                                     if bs & NETHER_BIOMES:
-                                        if (cx, cz) in DEBUG_CHUNKS:
-                                            print(f"  [TRACE] {fn} REJECTED: Nether biome", file=sys.stderr)
                                         stats['nether'] += 1; continue
 
                                 # --- Parse sections ---
@@ -229,8 +213,6 @@ if __name__ == '__main__':
                                         if decode_block(i, bpb0, bs0, pal0) != 'minecraft:dirt':
                                             y1_all_dirt = False; break
                                     if y1_all_dirt:
-                                        if (cx, cz) in DEBUG_CHUNKS:
-                                            print(f"  [TRACE] {fn} REJECTED: Y=1 all dirt", file=sys.stderr)
                                         stats['no_bedrock'] += 1; continue
 
                                     # Check Y=0 for all-bedrock
@@ -239,16 +221,12 @@ if __name__ == '__main__':
                                         if decode_block(i, bpb0, bs0, pal0) != 'minecraft:bedrock':
                                             y0_ok = False; break
                                     if not y0_ok:
-                                            if (cx, cz) in DEBUG_CHUNKS:
-                                                print(f"  [TRACE] {fn} REJECTED: Y=0 not all bedrock", file=sys.stderr)
                                             stats['no_bedrock'] += 1; continue
 
                                 # --- Filter ④: exact seed biome match ---
                                 if seed is not None and biomes:
                                     matched, _ = check_biomes_exact(
                                         MC_VER, seed, cx, cz, biomes)
-                                    if (cx, cz) in DEBUG_CHUNKS:
-                                        print(f"  [TRACE] {fn} seed_check: {matched}/16 match", file=sys.stderr)
                                     if matched != 16:
                                         stats['seed_mismatch'] += 1
                                         continue
@@ -350,8 +328,6 @@ if __name__ == '__main__':
                                     cf.write(chunk_bytes)
                                 kept+=1
                                 stats['saved'] += 1
-                                if (cx, cz) in DEBUG_CHUNKS:
-                                    print(f"  [TRACE] {fn} SAVED — written to _chunks/", file=sys.stderr)
 
                             except Exception as exc:
                                 stats['parse_error'] += 1
