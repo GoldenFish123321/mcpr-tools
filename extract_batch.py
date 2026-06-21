@@ -15,7 +15,7 @@ from nbt_reader import rnbt, rnbt_disk
 from mca_writer import make_entry, write_region, CS
 from level_utils import build_level_dat
 from seed_validator import check_biomes_exact, is_available as seed_validator_available, maybe_warn_fallback
-from entity_registry import entity_name
+from entity_registry import entity_name, parse_entity_metadata, armor_stand_meta_to_nbt
 
 
 # ============================================================
@@ -92,9 +92,11 @@ if __name__ == '__main__':
                                     ez = struct.unpack('>d', payload[o:o+8])[0]; o += 8
                                     # Skip yaw(1)+pitch(1)+head_pitch(1)+vx(2)+vy(2)+vz(2) = 9 bytes
                                     o += 9
-                                    # Parse entity metadata
-                                    from entity_registry import parse_entity_metadata as _pem
-                                    meta, _ = _pem(payload, o)
+                                    # Parse entity metadata (non-fatal: store entity even on parse error)
+                                    try:
+                                        meta, _ = parse_entity_metadata(payload, o)
+                                    except Exception:
+                                        meta = {}
                                     entity_state[eid] = {
                                         'type': etype, 'x': ex, 'y': ey, 'z': ez,
                                         'uuid': uuid_bytes, 'meta': meta,
@@ -127,9 +129,11 @@ if __name__ == '__main__':
                                 try:
                                     o = 0
                                     eid, o = rv(payload, o)
-                                    from entity_registry import parse_entity_metadata as _pem
-                                    new_meta, _ = _pem(payload, o)
                                     if eid in entity_state:
+                                        try:
+                                            new_meta, _ = parse_entity_metadata(payload, o)
+                                        except Exception:
+                                            new_meta = {}
                                         entity_state[eid].setdefault('meta', {}).update(new_meta)
                                 except: pass
                                 continue
@@ -438,7 +442,6 @@ if __name__ == '__main__':
                     ])
                     # Apply armor stand metadata (Invisible, CustomName, etc.)
                     if ent['type'] == 1 and ent.get('meta'):
-                        from entity_registry import armor_stand_meta_to_nbt
                         for k, v in armor_stand_meta_to_nbt(ent['meta']).items():
                             e[k] = v
                     e["NoAI"] = nbt_tag.Byte(1)
