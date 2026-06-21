@@ -126,6 +126,10 @@ if __name__ == '__main__':
                                 full = payload[o]!=0;o+=1
                                 mask,o = rv(payload,o)
 
+                                # Filter ①: skip chunk unload events (mask==0, no section data)
+                                if mask == 0:
+                                    stats['mask_zero'] += 1; continue
+
                                 # --- Read biomes for filter ③ BEFORE building NBT ---
                                 hm,o = rnbt(payload,o)
                                 biomes=None
@@ -224,7 +228,10 @@ if __name__ == '__main__':
                                             stats['no_bedrock'] += 1; continue
 
                                 # --- Filter ④: exact seed biome match ---
-                                if seed is not None and biomes:
+                                if seed is not None:
+                                    if not biomes:
+                                        # Partial chunk with no cached biomes — skip
+                                        stats['seed_unknown_biomes'] += 1; continue
                                     matched, _ = check_biomes_exact(
                                         MC_VER, seed, cx, cz, biomes)
                                     if matched != 16:
@@ -472,7 +479,9 @@ if __name__ == '__main__':
     print(f"\n{'='*55}")
     print(f"  ChunkData packets scanned:  {stats['total_020']:>8,}")
     print(f"  Parse errors:               {stats['parse_error']:>8,}")
+    print(f"  Rejected (mask=0 unload):    {stats['mask_zero']:>8,}")
     print(f"  Rejected (no bedrock):       {stats['no_bedrock']:>8,}")
+    print(f"  Rejected (unknown biomes):   {stats['seed_unknown_biomes']:>8,}")
     print(f"  Rejected (seed mismatch):    {stats['seed_mismatch']:>8,}")
     print(f"  Rejected (End biomes):      {stats['end']:>8,}")
     print(f"  Rejected (Nether biomes):   {stats['nether']:>8,}")
