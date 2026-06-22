@@ -180,8 +180,8 @@ def _read_rotation(payload, o):
             _struct.unpack('>f', payload[o+8:o+12])[0]), o + 12
 
 def _read_position(payload, o):
-    from protocol import rv
-    val, o = rv(payload, o)
+    """Read Position (type 9) — 8-byte signed long in entity metadata (1.16.5)."""
+    val = _struct.unpack('>q', payload[o:o+8])[0]; o += 8
     x = val >> 38
     y = val & 0xFFF
     z = (val >> 12) & 0x3FFFFFF
