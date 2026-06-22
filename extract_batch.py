@@ -527,8 +527,13 @@ if __name__ == '__main__':
                             ]))
                             _armor[slot_id - 2] = _item_tag
                     # Object data for paintings/item frames
-                    if ent['type'] in (55, 38):  # painting=55, item_frame=38
-                        e["Facing"] = nbt_tag.Byte(ent.get('obj_data', 0))
+                    # Protocol Data field direction → NBT Facing
+                    _DATA_TO_FACING = {0: 3, 1: 4, 2: 2, 3: 5, 4: 1, 5: 0}
+                    if ent['type'] == 38:  # item_frame
+                        obj = ent.get('obj_data', 0)
+                        e["Facing"] = nbt_tag.Byte(_DATA_TO_FACING.get(obj, 3))
+                    # Paintings: Data field is the motive ID, not facing.
+                    # Facing comes from entity metadata; skip Data here.
                     elif ent['type'] == 40:  # item
                         _item_e = nbt_tag.Compound()
                         _item_e["id"] = nbt_tag.String("minecraft:stone")
