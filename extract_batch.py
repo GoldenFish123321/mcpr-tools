@@ -230,8 +230,14 @@ if __name__ == '__main__':
                                     o = 0
                                     eid, o = rv(payload, o)
                                     if eid in entity_state:
+                                        etype = entity_state[eid].get('type', '?')
+                                        # Diagnostic: dump full payload for tropical_fish (type 91)
+                                        if etype == 91 and _dbg_limits.get('fish_dump', 0) < 1:
+                                            _dbg_limits['fish_dump'] = _dbg_limits.get('fish_dump', 0) + 1
+                                            print(f"  [DEBUG] tropical_fish 0x44 eid={eid} "
+                                                  f"payload_len={len(payload)} "
+                                                  f"full_hex={payload.hex()}", file=sys.stderr)
                                         try:
-                                            etype = entity_state[eid].get('type', '?')
                                             new_meta, _ = parse_entity_metadata(
                                                 payload, o, debug_ctx=f" [eid={eid} type={etype} pid=0x44]")
                                         except Exception as me:
