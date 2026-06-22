@@ -179,11 +179,11 @@ if __name__ == '__main__':
                                     eid, o = rv(payload, o)
                                     if eid in entity_state:
                                         equip = entity_state[eid].setdefault('equipment', {})
-                                        # Slot: VarInt (0=mainhand, 1=offhand, 2=boots,
-                                        #   3=leggings, 4=chestplate, 5=helmet)
-                                        # Followed by Item (Slot data). Repeats to end of packet.
+                                        # Slot: Byte (0=mainhand, 1=offhand, 2=boots,
+                                        #   3=leggings, 4=chestplate, 5=helmet).
+                                        # Packet loops until end; plugin servers may use slots >5.
                                         while o < len(payload):
-                                            slot_id, o = rv(payload, o)
+                                            slot_id = payload[o]; o += 1
                                             present = payload[o]; o += 1
                                             if present:
                                                 item_id, o = rv(payload, o)
@@ -231,12 +231,6 @@ if __name__ == '__main__':
                                     eid, o = rv(payload, o)
                                     if eid in entity_state:
                                         etype = entity_state[eid].get('type', '?')
-                                        # Diagnostic: dump full payload for tropical_fish (type 91)
-                                        if etype == 91 and _dbg_limits.get('fish_dump', 0) < 1:
-                                            _dbg_limits['fish_dump'] = _dbg_limits.get('fish_dump', 0) + 1
-                                            print(f"  [DEBUG] tropical_fish 0x44 eid={eid} "
-                                                  f"payload_len={len(payload)} "
-                                                  f"full_hex={payload.hex()}", file=sys.stderr)
                                         try:
                                             new_meta, _ = parse_entity_metadata(
                                                 payload, o, debug_ctx=f" [eid={eid} type={etype} pid=0x44]")
@@ -591,6 +585,13 @@ if __name__ == '__main__':
                                 nbt_tag.Compound(_empty_item), nbt_tag.Compound(_empty_item),
                             ]))
                             _armor[slot_id - 2] = _item_tag
+                        else:
+                            # Non-standard equipment slots (plugin server custom data)
+                            _extra = e.setdefault("ExtraEquipment", nbt_tag.List[nbt_tag.Compound]([]))
+                            _entry = nbt_tag.Compound()
+                            _entry["Slot"] = nbt_tag.Int(slot_id)
+                            _entry["Item"] = _item_tag
+                            _extra.append(_entry)
                     # Object data for item frames / paintings
                     if ent['type'] == 38:  # item_frame
                         # wiki.vg 1.16.5: Object Data for item_frame IS the NBT Facing
