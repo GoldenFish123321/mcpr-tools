@@ -90,6 +90,7 @@ if __name__ == '__main__':
                         for ts, pid, payload in packets(f):
                             # --- Entity tracking ---
                             if pid == 0x02:      # Spawn Living Entity
+                                eid = etype = '?'
                                 try:
                                     o = 0
                                     eid, o = rv(payload, o)
@@ -117,7 +118,8 @@ if __name__ == '__main__':
                                         'yaw': yaw, 'pitch': pitch,
                                     }
                                 except Exception as _e:
-                                    _dbg_once('pid_002', f'pid=0x02 parse error: {_e}')
+                                    _dbg_once('pid_002', f'pid=0x02 parse error eid={eid} type={etype}: '
+                                              f'{_e} (payload_len={len(payload)})')
                                 continue
                             elif pid == 0x00:      # Spawn Entity (items, paintings, etc.)
                                 try:
@@ -285,7 +287,8 @@ if __name__ == '__main__':
                                 for ei in range(bec):
                                     try: be,o=rnbt(payload,o)
                                     except Exception as _e:
-                                        _dbg_once('be_nbt', f'block entity NBT parse error: {_e}')
+                                        _dbg_once('be_nbt', f'block entity NBT parse error ei={ei}/{bec}: '
+                                                  f'{_e} (data_len={len(payload)}, offset={o})')
                                         continue
                                     if be:
                                         # Ensure sign tile entities have GlowingText (required by 1.16.5)
