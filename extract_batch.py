@@ -231,12 +231,6 @@ if __name__ == '__main__':
                                     eid, o = rv(payload, o)
                                     if eid in entity_state:
                                         etype = entity_state[eid].get('type', '?')
-                                        # Diagnostic: dump full payload for firework_rocket (type 27) first occurrence
-                                        if etype == 27 and _dbg_limits.get('fw_dump', 0) < 1:
-                                            _dbg_limits['fw_dump'] = _dbg_limits.get('fw_dump', 0) + 1
-                                            print(f"  [DEBUG] firework 0x44 eid={eid} "
-                                                  f"payload_len={len(payload)} "
-                                                  f"full_hex={payload.hex()}", file=sys.stderr)
                                         try:
                                             new_meta, _ = parse_entity_metadata(
                                                 payload, o, debug_ctx=f" [eid={eid} type={etype} pid=0x44]")

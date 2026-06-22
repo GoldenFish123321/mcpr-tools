@@ -220,9 +220,11 @@ def _read_villager_data(payload, o):
     return (v1, v2, v3), o
 
 def _read_opt_varint(payload, o):
-    from protocol import rv
-    vid, o = rv(payload, o)
-    if vid > 0: return rv(payload, o)
+    """Read OptVarInt (type 17). Present flag is Byte, not VarInt."""
+    present = payload[o]; o += 1
+    if present:
+        from protocol import rv
+        return rv(payload, o)
     return None, o
 
 def _read_pose(payload, o):
