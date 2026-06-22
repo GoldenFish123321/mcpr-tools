@@ -198,20 +198,8 @@ if __name__ == '__main__':
                                                     equip[slot_id] = None
                                             else:
                                                 equip[slot_id] = None
-                                        # Diagnostic: log equipment for armor stands with >1 slot
-                                        etype = entity_state[eid].get('type')
-                                        if etype == 1 and len(equip) > 1 and _dbg_limits.get('as_full', 0) < 5:
-                                            _dbg_limits['as_full'] = _dbg_limits.get('as_full', 0) + 1
-                                            print(f"  [DEBUG] armor_stand FULL equip eid={eid} slots={sorted(equip.keys())} "
-                                                  f"item_ids={[(s,e.get('id','?')) for s,e in sorted(equip.items()) if e]}",
-                                                  file=sys.stderr)
                                 except Exception as _e:
                                     _dbg_once('pid_047', f'pid=0x47 parse error: {_e}')
-                                    # Dump full payload of first failed packet for diagnosis
-                                    if _dbg_limits.get('pid_047_dump', 0) < 2:
-                                        _dbg_limits['pid_047_dump'] = _dbg_limits.get('pid_047_dump', 0) + 1
-                                        print(f"  [DEBUG] pid=0x47 FAIL payload_len={len(payload)} "
-                                              f"full_hex={payload.hex()}", file=sys.stderr)
                                 continue
                             elif pid == 0x56: # Entity Teleport
                                 try:
@@ -243,12 +231,6 @@ if __name__ == '__main__':
                                     eid, o = rv(payload, o)
                                     if eid in entity_state:
                                         etype = entity_state[eid].get('type', '?')
-                                        # Diagnostic: dump full payload for tropical_fish (type 91)
-                                        if etype == 91 and _dbg_limits.get('fish_dump', 0) < 1:
-                                            _dbg_limits['fish_dump'] = _dbg_limits.get('fish_dump', 0) + 1
-                                            print(f"  [DEBUG] tropical_fish 0x44 eid={eid} "
-                                                  f"payload_len={len(payload)} "
-                                                  f"full_hex={payload.hex()}", file=sys.stderr)
                                         try:
                                             new_meta, _ = parse_entity_metadata(
                                                 payload, o, debug_ctx=f" [eid={eid} type={etype} pid=0x44]")
