@@ -90,8 +90,8 @@ if __name__ == '__main__':
                         for ts, pid, payload in packets(f):
                             # --- Entity tracking ---
                             if pid == 0x02:      # Spawn Living Entity
-                                if len(payload) < 52:  # minimum: eid+uuid+etype+3xdouble+yaw/pitch+velocity+metadata
-                                    _dbg_once('pid_002_short', f'pid=0x02 packet too short ({len(payload)} bytes), skipping')
+                                if len(payload) < 52:  # minimum
+                                    _dbg_once('pid_002_short', f'pid=0x02 too short ({len(payload)}b) hex={payload.hex()}')
                                     continue
                                 eid = etype = '?'
                                 try:
