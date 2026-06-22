@@ -129,6 +129,34 @@ if __name__ == '__main__':
                                     }
                                 except: pass
                                 continue
+                            elif pid == 0x05:      # Spawn Painting (1.16.5+)
+                                try:
+                                    o = 0
+                                    eid, o = rv(payload, o)
+                                    uuid_bytes = payload[o:o+16]; o += 16
+                                    # Motive is String in 1.16.5 (VarInt in 1.19+)
+                                    motive_len, o = rv(payload, o)
+                                    motive = payload[o:o+motive_len].decode('utf-8'); o += motive_len
+                                    # Location: Position (8-byte long)
+                                    pos_val = struct.unpack('>q', payload[o:o+8])[0]; o += 8
+                                    px = pos_val >> 38
+                                    py = pos_val & 0xFFF
+                                    pz = (pos_val >> 12) & 0x3FFFFFF
+                                    # Sign-extend
+                                    if px >= 1 << 25: px -= 1 << 26
+                                    if py >= 1 << 11: py -= 1 << 12
+                                    if pz >= 1 << 25: pz -= 1 << 26
+                                    direction = payload[o]; o += 1
+                                    # Direction 2=North 3=South 4=West 5=East, same as NBT Facing
+                                    entity_state[eid] = {
+                                        'type': 55,  # painting
+                                        'x': px, 'y': py, 'z': pz,
+                                        'uuid': uuid_bytes,
+                                        'motive': motive,
+                                        'direction': direction,
+                                    }
+                                except: pass
+                                continue
                             elif pid == 0x47:      # Entity Equipment
                                 try:
                                     o = 0
@@ -527,14 +555,18 @@ if __name__ == '__main__':
                                 nbt_tag.Compound(), nbt_tag.Compound(),
                             ]))
                             _armor[slot_id - 2] = _item_tag
-                    # Object data for paintings/item frames
-                    # Protocol Data field direction → NBT Facing
-                    _DATA_TO_FACING = {0: 3, 1: 4, 2: 2, 3: 5, 4: 1, 5: 0}
+                    # Object data for item frames / paintings
                     if ent['type'] == 38:  # item_frame
-                        obj = ent.get('obj_data', 0)
-                        e["Facing"] = nbt_tag.Byte(_DATA_TO_FACING.get(obj, 3))
-                    # Paintings: Data field is the motive ID, not facing.
-                    # Facing comes from entity metadata; skip Data here.
+                        # wiki.vg 1.16.5: Object Data for item_frame IS the NBT Facing
+                        # (0=Down 1=Up 2=North 3=South 4=West 5=East)
+                        e["Facing"] = nbt_tag.Byte(ent.get('obj_data', 0))
+                    elif ent['type'] == 55:  # painting
+                        # If spawned via 0x05 packet, motive/direction stored in entity_state
+                        if 'motive' in ent:
+                            e["Motive"] = nbt_tag.String(ent['motive'])
+                        if 'direction' in ent:
+                            # wiki.vg 1.16.5: 0x05 Direction 2=North..5=East, same as NBT Facing
+                            e["Facing"] = nbt_tag.Byte(ent['direction'])
                     e["PersistenceRequired"] = nbt_tag.Byte(1)
                     ent_list.append(e)
                 lv["Entities"] = ent_list
