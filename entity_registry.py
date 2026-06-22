@@ -162,8 +162,8 @@ def _read_slot(payload, o):
         item_id, o = rv(payload, o)
         if item_id != -1:
             count = payload[o]; o += 1
-            from protocol import rnbt_disk
-            tag, o = rnbt_disk(payload, o)
+            from nbt_reader import rnbt
+            tag, o = rnbt(payload, o)
             return {'id': item_id, 'Count': count, 'tag': tag}, o
         return None, o
     return None, o

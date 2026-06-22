@@ -143,7 +143,7 @@ if __name__ == '__main__':
                                                 item_id, o = rv(payload, o)
                                                 if item_id != -1:
                                                     count = payload[o]; o += 1
-                                                    tag, o = rnbt_disk(payload, o)
+                                                    tag, o = rnbt(payload, o)
                                                     equip[slot_id] = {
                                                         'id': item_id, 'Count': count,
                                                         'tag': tag,
