@@ -166,8 +166,11 @@ def _read_slot(payload, o):
             try:
                 tag, o = rnbt(payload, o)
                 return {'id': item_id, 'Count': count, 'tag': tag}, o
-            except Exception:
-                # Truncated payload (e.g., Replay Mod recorded only partial 0x44)
+            except Exception as e:
+                import sys
+                print(f"  [DEBUG] _read_slot NBT truncated (item_id={item_id}): "
+                      f"{type(e).__name__}: {e} — keeping item without NBT tag",
+                      file=sys.stderr)
                 return {'id': item_id, 'Count': count, 'tag': None}, o
         return None, o
     return None, o
