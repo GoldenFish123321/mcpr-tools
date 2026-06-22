@@ -12,7 +12,7 @@ from nbtlib import File as NBTFile, tag as nbt_tag
 from block_data import bn, bp, END_BIOMES, NETHER_BIOMES
 from item_data import item_name
 from protocol import rv, packets
-from nbt_reader import rnbt, rnbt_disk
+from nbt_reader import rnbt
 from mca_writer import make_entry, write_region, CS
 from level_utils import build_level_dat
 from seed_validator import check_biomes_exact, is_available as seed_validator_available, maybe_warn_fallback
@@ -283,7 +283,7 @@ if __name__ == '__main__':
 
                                 bec,o=rv(payload,o);bes=[]
                                 for ei in range(bec):
-                                    try: be,o=rnbt_disk(payload,o)
+                                    try: be,o=rnbt(payload,o)
                                     except Exception as _e:
                                         _dbg_once('be_nbt', f'block entity NBT parse error: {_e}')
                                         continue

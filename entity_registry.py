@@ -205,7 +205,7 @@ def _read_block_state(payload, o):
     from protocol import rv; return rv(payload, o)
 
 def _read_nbt(payload, o):
-    from nbt_reader import rnbt_disk; return rnbt_disk(payload, o)
+    from nbt_reader import rnbt; return rnbt(payload, o)
 
 def _read_particle(payload, o):
     from protocol import rv
