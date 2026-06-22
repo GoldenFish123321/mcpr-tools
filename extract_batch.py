@@ -198,10 +198,11 @@ if __name__ == '__main__':
                                                     equip[slot_id] = None
                                             else:
                                                 equip[slot_id] = None
-                                        # Diagnostic: log equipment slots for first few armor stands
-                                        if entity_state[eid].get('type') == 1 and _dbg_limits.get('as_equip', 0) < 3:
-                                            _dbg_limits['as_equip'] = _dbg_limits.get('as_equip', 0) + 1
-                                            print(f"  [DEBUG] armor_stand 0x47 eid={eid} slots={sorted(equip.keys())} "
+                                        # Diagnostic: log equipment for armor stands with >1 slot
+                                        etype = entity_state[eid].get('type')
+                                        if etype == 1 and len(equip) > 1 and _dbg_limits.get('as_full', 0) < 5:
+                                            _dbg_limits['as_full'] = _dbg_limits.get('as_full', 0) + 1
+                                            print(f"  [DEBUG] armor_stand FULL equip eid={eid} slots={sorted(equip.keys())} "
                                                   f"item_ids={[(s,e.get('id','?')) for s,e in sorted(equip.items()) if e]}",
                                                   file=sys.stderr)
                                 except Exception as _e:
