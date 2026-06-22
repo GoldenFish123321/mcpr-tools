@@ -288,12 +288,16 @@ def armor_stand_meta_to_nbt(meta):
         tags['NoGravity'] = T.Byte(0 if (f & 0x02) else 1)  # inverted
         if f & 0x08: tags['NoBasePlate'] = T.Byte(1)
         if f & 0x10: tags['Marker'] = T.Byte(1)
-    # Indices 16-21: Rotation (head, body, left arm, right arm, left leg, right leg)
+    # Indices 15-20: Rotation (head, body, left arm, right arm, left leg, right leg)
     POSE_KEYS = ['Head', 'Body', 'LeftArm', 'RightArm', 'LeftLeg', 'RightLeg']
     pose_parts = {}
     for idx, key in enumerate(POSE_KEYS):
-        if idx + 16 in meta:
-            pose_parts[key] = T.List[T.Float]([T.Float(v) for v in meta[idx + 16]])
+        val = meta.get(idx + 15)
+        if val is not None:
+            try:
+                pose_parts[key] = T.List[T.Float]([T.Float(v) for v in val])
+            except (TypeError, ValueError):
+                pass
     if pose_parts:
         pc = T.Compound()
         for k, v in pose_parts.items():

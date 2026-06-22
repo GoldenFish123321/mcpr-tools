@@ -577,15 +577,18 @@ if __name__ == '__main__':
                         if item.get('tag') is not None:
                             _item_tag["tag"] = item['tag']
                         # Slots: 0=mainhand, 1=offhand, 2=boots, 3=leggings, 4=chestplate, 5=helmet
+                        _empty_item = nbt_tag.Compound()
+                        _empty_item["id"] = nbt_tag.String("minecraft:air")
+                        _empty_item["Count"] = nbt_tag.Byte(0)
                         if slot_id <= 1:
                             _hands = e.setdefault("HandItems", nbt_tag.List[nbt_tag.Compound]([
-                                nbt_tag.Compound(), nbt_tag.Compound(),
+                                nbt_tag.Compound(_empty_item), nbt_tag.Compound(_empty_item),
                             ]))
                             _hands[slot_id] = _item_tag
                         elif slot_id <= 5:
                             _armor = e.setdefault("ArmorItems", nbt_tag.List[nbt_tag.Compound]([
-                                nbt_tag.Compound(), nbt_tag.Compound(),
-                                nbt_tag.Compound(), nbt_tag.Compound(),
+                                nbt_tag.Compound(_empty_item), nbt_tag.Compound(_empty_item),
+                                nbt_tag.Compound(_empty_item), nbt_tag.Compound(_empty_item),
                             ]))
                             _armor[slot_id - 2] = _item_tag
                     # Object data for item frames / paintings
