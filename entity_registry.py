@@ -316,10 +316,14 @@ VILLAGER_PROFESSIONS = {
 
 
 def villager_meta_to_nbt(meta):
-    """Convert villager metadata (index 16: VillagerData) to NBT."""
+    """Convert villager metadata (index 16: VillagerData) to NBT.
+    Guard: plugin servers may send int instead of tuple."""
     if 16 not in meta: return {}
+    vd_raw = meta[16]
+    if not isinstance(vd_raw, (tuple, list)) or len(vd_raw) < 3:
+        return {}
     import nbtlib.tag as T
-    vtype_id, profession_id, level = meta[16]
+    vtype_id, profession_id, level = vd_raw[:3]
     vd = T.Compound()
     vd["level"] = T.Int(level)
     vd["profession"] = T.String(
@@ -336,7 +340,8 @@ def entity_meta_to_nbt(entity_type, meta):
     import nbtlib.tag as T
     tags = {}
     # Index 0: status flags — bit 5 = invisible (for ALL entities)
-    if 0 in meta and meta[0] & 0x20:
+    # Guard: plugin servers may inject non-int values at index 0
+    if 0 in meta and isinstance(meta[0], int) and meta[0] & 0x20:
         tags['Invisible'] = T.Byte(1)
     # Index 2: Optional Chat → CustomName
     if 2 in meta and meta[2] is not None:
@@ -370,7 +375,10 @@ def entity_meta_to_nbt(entity_type, meta):
                 it["tag"] = item['tag']
             tags['Item'] = it
         if 8 in meta:  # ItemRotation
-            tags['ItemRotation'] = T.Byte(meta[8])
+            try:
+                tags['ItemRotation'] = T.Byte(meta[8])
+            except (ValueError, OverflowError):
+                pass  # plugin server injected out-of-range value
     # Item entity (type 37) — drops floating on ground
     elif entity_type == 37:
         from item_data import item_name

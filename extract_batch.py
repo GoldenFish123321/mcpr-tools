@@ -592,14 +592,20 @@ if __name__ == '__main__':
                     if ent['type'] == 38:  # item_frame
                         # wiki.vg 1.16.5: Object Data for item_frame IS the NBT Facing
                         # (0=Down 1=Up 2=North 3=South 4=West 5=East)
-                        e["Facing"] = nbt_tag.Byte(ent.get('obj_data', 0))
+                        try:
+                            e["Facing"] = nbt_tag.Byte(ent.get('obj_data', 0))
+                        except (ValueError, OverflowError):
+                            pass  # plugin server injected out-of-range value
                     elif ent['type'] == 55:  # painting
                         # If spawned via 0x05 packet, motive/direction stored in entity_state
                         if 'motive' in ent:
                             e["Motive"] = nbt_tag.String(ent['motive'])
                         if 'direction' in ent:
-                            # wiki.vg 1.16.5: 0x05 Direction 2=North..5=East, same as NBT Facing
-                            e["Facing"] = nbt_tag.Byte(ent['direction'])
+                            # wiki.vg 1.16.5: 0x04 Direction 2=North..5=East, same as NBT Facing
+                            try:
+                                e["Facing"] = nbt_tag.Byte(ent['direction'])
+                            except (ValueError, OverflowError):
+                                pass  # plugin server injected out-of-range value
                     e["PersistenceRequired"] = nbt_tag.Byte(1)
                     ent_list.append(e)
                 lv["Entities"] = ent_list
