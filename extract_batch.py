@@ -134,10 +134,11 @@ if __name__ == '__main__':
                                     eid, o = rv(payload, o)
                                     if eid in entity_state:
                                         equip = entity_state[eid].setdefault('equipment', {})
+                                        # Slot: VarInt (0=mainhand, 1=offhand, 2=boots,
+                                        #   3=leggings, 4=chestplate, 5=helmet)
+                                        # Followed by Item (Slot data). Repeats to end of packet.
                                         while o < len(payload):
-                                            slot_byte = payload[o]; o += 1
-                                            slot_id = slot_byte & 0x7F
-                                            is_last = slot_byte & 0x80
+                                            slot_id, o = rv(payload, o)
                                             present = payload[o]; o += 1
                                             if present:
                                                 item_id, o = rv(payload, o)
@@ -152,8 +153,6 @@ if __name__ == '__main__':
                                                     equip[slot_id] = None
                                             else:
                                                 equip[slot_id] = None
-                                            if is_last:
-                                                break
                                 except: pass
                                 continue
                             elif pid == 0x56: # Entity Teleport
