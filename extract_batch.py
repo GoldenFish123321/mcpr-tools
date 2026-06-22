@@ -207,6 +207,11 @@ if __name__ == '__main__':
                                                   file=sys.stderr)
                                 except Exception as _e:
                                     _dbg_once('pid_047', f'pid=0x47 parse error: {_e}')
+                                    # Dump full payload of first failed packet for diagnosis
+                                    if _dbg_limits.get('pid_047_dump', 0) < 2:
+                                        _dbg_limits['pid_047_dump'] = _dbg_limits.get('pid_047_dump', 0) + 1
+                                        print(f"  [DEBUG] pid=0x47 FAIL payload_len={len(payload)} "
+                                              f"full_hex={payload.hex()}", file=sys.stderr)
                                 continue
                             elif pid == 0x56: # Entity Teleport
                                 try:
