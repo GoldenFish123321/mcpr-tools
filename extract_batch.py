@@ -598,6 +598,13 @@ if __name__ == '__main__':
                                 nbt_tag.Compound(_empty_item), nbt_tag.Compound(_empty_item),
                             ]))
                             _armor[slot_id - 2] = _item_tag
+                        else:
+                            # Non-standard equipment slots (plugin server custom data)
+                            _extra = e.setdefault("ExtraEquipment", nbt_tag.List[nbt_tag.Compound]([]))
+                            _entry = nbt_tag.Compound()
+                            _entry["Slot"] = nbt_tag.Int(slot_id)
+                            _entry["Item"] = _item_tag
+                            _extra.append(_entry)
                     # Object data for item frames / paintings
                     if ent['type'] == 38:  # item_frame
                         # wiki.vg 1.16.5: Object Data for item_frame IS the NBT Facing
