@@ -163,8 +163,12 @@ def _read_slot(payload, o):
         if item_id != -1:
             count = payload[o]; o += 1
             from nbt_reader import rnbt
-            tag, o = rnbt(payload, o)
-            return {'id': item_id, 'Count': count, 'tag': tag}, o
+            try:
+                tag, o = rnbt(payload, o)
+                return {'id': item_id, 'Count': count, 'tag': tag}, o
+            except Exception:
+                # Truncated payload (e.g., Replay Mod recorded only partial 0x44)
+                return {'id': item_id, 'Count': count, 'tag': None}, o
         return None, o
     return None, o
 
@@ -199,7 +203,7 @@ def _read_block_state(payload, o):
     from protocol import rv; return rv(payload, o)
 
 def _read_nbt(payload, o):
-    from protocol import rnbt_disk; return rnbt_disk(payload, o)
+    from nbt_reader import rnbt_disk; return rnbt_disk(payload, o)
 
 def _read_particle(payload, o):
     from protocol import rv
@@ -381,3 +385,16 @@ def entity_meta_to_nbt(entity_type, meta):
             tags['Age'] = T.Short(0)
 
     return tags
+
+# ── Painting Motive registry (1.16.5 VarInt ID → name) ──────
+
+PAINTING_MOTIVES = {
+    0: 'kebab', 1: 'aztec', 2: 'alban', 3: 'aztec2',
+    4: 'bomb', 5: 'plant', 6: 'wasteland',
+    7: 'pool', 8: 'courbet', 9: 'sea', 10: 'sunset', 11: 'creebet',
+    12: 'wanderer', 13: 'graham',
+    14: 'match', 15: 'bust', 16: 'stage', 17: 'void',
+    18: 'skull_and_roses', 19: 'wither',
+    20: 'fighters', 21: 'pointer', 22: 'pigscene', 23: 'burning_skull',
+    24: 'skeleton', 25: 'donkey_kong',
+}

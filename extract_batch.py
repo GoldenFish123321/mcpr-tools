@@ -141,14 +141,15 @@ if __name__ == '__main__':
                                 except Exception as _e:
                                     _dbg_once('pid_000', f'pid=0x00 parse error: {_e}')
                                 continue
-                            elif pid == 0x05:      # Spawn Painting (1.16.5+)
+                            elif pid == 0x04:      # Spawn Painting (1.16.5 pid=0x04)
                                 try:
                                     o = 0
                                     eid, o = rv(payload, o)
                                     uuid_bytes = payload[o:o+16]; o += 16
-                                    # Motive is String in 1.16.5 (VarInt in 1.19+)
-                                    motive_len, o = rv(payload, o)
-                                    motive = payload[o:o+motive_len].decode('utf-8'); o += motive_len
+                                    # Motive is VarInt registry ID (not String — 1.13 flattened)
+                                    motive_id, o = rv(payload, o)
+                                    from entity_registry import PAINTING_MOTIVES
+                                    motive = PAINTING_MOTIVES.get(motive_id, f'unknown_{motive_id}')
                                     # Location: Position (8-byte long)
                                     pos_val = struct.unpack('>q', payload[o:o+8])[0]; o += 8
                                     px = pos_val >> 38
@@ -159,16 +160,16 @@ if __name__ == '__main__':
                                     if py >= 1 << 11: py -= 1 << 12
                                     if pz >= 1 << 25: pz -= 1 << 26
                                     direction = payload[o]; o += 1
-                                    # Direction 2=North 3=South 4=West 5=East, same as NBT Facing
+                                    # Direction 2=North..5=East, same as NBT Facing
                                     entity_state[eid] = {
                                         'type': 55,  # painting
                                         'x': px, 'y': py, 'z': pz,
                                         'uuid': uuid_bytes,
-                                        'motive': motive,
+                                        'motive': f'minecraft:{motive}',
                                         'direction': direction,
                                     }
                                 except Exception as _e:
-                                    _dbg_once('pid_005', f'pid=0x05 parse error: {_e}')
+                                    _dbg_once('pid_004', f'pid=0x04 parse error: {_e}')
                                 continue
                             elif pid == 0x47:      # Entity Equipment
                                 try:
