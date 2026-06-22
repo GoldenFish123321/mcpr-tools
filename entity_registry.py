@@ -168,13 +168,8 @@ def _read_slot(payload, o):
                 return {'id': item_id, 'Count': count, 'tag': tag}, o
             except Exception as e:
                 import sys
-                # Dump remaining bytes to check if 0xFF terminator follows
-                remaining = payload[o:].hex() if o < len(payload) else '(end)'
-                print(f"  [DEBUG] _read_slot NBT fail: item_id={item_id} "
-                      f"{type(e).__name__}: {e} "
-                      f"offset={o} len(payload)={len(payload)} "
-                      f"remaining={remaining}",
-                      file=sys.stderr)
+                print(f"  [DEBUG] _read_slot NBT parse error item_id={item_id}: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
                 return {'id': item_id, 'Count': count, 'tag': None}, o
         return None, o
     return None, o

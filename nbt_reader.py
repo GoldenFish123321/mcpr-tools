@@ -34,8 +34,7 @@ class NR:
         self.o += 1
         if t == 0:
             return "", None, self.o
-        nl = struct.unpack('>H', self.d[self.o:self.o + 2])[0]
-        self.o += 2
+        nl, self.o = rv(self.d, self.o)  # VarInt — network format
         nm = self.d[self.o:self.o + nl].decode('utf-8', 'replace') if nl > 0 else ""
         self.o += nl
         v, self.o = self._p(t, self.o)
@@ -109,6 +108,21 @@ class NR:
 
 class NRD(NR):
     """Disk-format NBT reader (2-byte string lengths for tag type 8)."""
+
+    def r(self):
+        """Read next tag with 2-byte name length (disk format)."""
+        t = self.d[self.o]
+        self.o += 1
+        if t == 0:
+            return "", None, self.o
+        nl = struct.unpack('>H', self.d[self.o:self.o + 2])[0]
+        self.o += 2
+        nm = self.d[self.o:self.o + nl].decode('utf-8', 'replace') if nl > 0 else ""
+        self.o += nl
+        v, self.o = self._p(t, self.o)
+        if v is None:
+            return "", None, self.o
+        return nm, v, self.o
 
     def _p(self, t, offset):
         if t == 8:
