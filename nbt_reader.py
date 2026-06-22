@@ -34,7 +34,8 @@ class NR:
         self.o += 1
         if t == 0:
             return "", None, self.o
-        nl, self.o = rv(self.d, self.o)  # VarInt — network format
+        nl = struct.unpack('>H', self.d[self.o:self.o + 2])[0]  # >H is standard NBT
+        self.o += 2
         nm = self.d[self.o:self.o + nl].decode('utf-8', 'replace') if nl > 0 else ""
         self.o += nl
         v, self.o = self._p(t, self.o)
@@ -63,7 +64,7 @@ class NR:
             offset += 4
             return nbt_tag.ByteArray(d[offset:offset + l]), offset + l
         if t == 8:
-            v, offset = _rs(d, offset)
+            v, offset = _rs_disk(d, offset)
             return nbt_tag.String(v), offset
         if t == 9:
             ct = d[offset]
@@ -107,22 +108,9 @@ class NR:
 
 
 class NRD(NR):
-    """Disk-format NBT reader (2-byte string lengths for tag type 8)."""
+    """Disk-format NBT reader (identical to NR — standard NBT uses >H everywhere).
 
-    def r(self):
-        """Read next tag with 2-byte name length (disk format)."""
-        t = self.d[self.o]
-        self.o += 1
-        if t == 0:
-            return "", None, self.o
-        nl = struct.unpack('>H', self.d[self.o:self.o + 2])[0]
-        self.o += 2
-        nm = self.d[self.o:self.o + nl].decode('utf-8', 'replace') if nl > 0 else ""
-        self.o += nl
-        v, self.o = self._p(t, self.o)
-        if v is None:
-            return "", None, self.o
-        return nm, v, self.o
+    Kept as alias for backward compatibility (rnbt_disk)."""
 
     def _p(self, t, offset):
         if t == 8:
