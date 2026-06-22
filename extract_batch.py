@@ -10,6 +10,7 @@ from collections import Counter
 from nbtlib import File as NBTFile, tag as nbt_tag
 
 from block_data import bn, bp, END_BIOMES, NETHER_BIOMES
+from item_data import item_name
 from protocol import rv, packets
 from nbt_reader import rnbt, rnbt_disk
 from mca_writer import make_entry, write_region, CS
@@ -510,7 +511,7 @@ if __name__ == '__main__':
                         if item is None:
                             continue
                         _item_tag = nbt_tag.Compound()
-                        _item_tag["id"] = nbt_tag.String(bn(item['id']))
+                        _item_tag["id"] = nbt_tag.String(item_name(item['id']))
                         _item_tag["Count"] = nbt_tag.Byte(item['Count'])
                         if item.get('tag') is not None:
                             _item_tag["tag"] = item['tag']
@@ -534,11 +535,6 @@ if __name__ == '__main__':
                         e["Facing"] = nbt_tag.Byte(_DATA_TO_FACING.get(obj, 3))
                     # Paintings: Data field is the motive ID, not facing.
                     # Facing comes from entity metadata; skip Data here.
-                    elif ent['type'] == 40:  # item
-                        _item_e = nbt_tag.Compound()
-                        _item_e["id"] = nbt_tag.String("minecraft:stone")
-                        _item_e["Count"] = nbt_tag.Byte(1)
-                        e["Item"] = _item_e
                     e["PersistenceRequired"] = nbt_tag.Byte(1)
                     ent_list.append(e)
                 lv["Entities"] = ent_list
