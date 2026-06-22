@@ -87,10 +87,16 @@ if __name__ == '__main__':
             with zipfile.ZipFile(fp) as zf:
                 try:
                     with zf.open('recording.tmcpr') as f:
+                        in_play_state = False
                         for ts, pid, payload in packets(f):
-                            # --- Entity tracking ---
-                            if pid == 0x02:      # Spawn Living Entity
-                                if len(payload) < 52:  # minimum
+                            # --- State transition detection ---
+                            if pid == 0x24:       # Join Game → Play state begins
+                                in_play_state = True
+                            if not in_play_state:
+                                continue  # Skip all packets before Play state (Login phase)
+                            # --- Entity tracking (Play state only) ---
+                            if pid == 0x02:      # Spawn Living Entity (protocol 754: min 51 bytes, no metadata required since 1.15)
+                                if len(payload) < 51:
                                     _dbg_once('pid_002_short', f'pid=0x02 too short ({len(payload)}b) hex={payload.hex()}')
                                     continue
                                 eid = etype = '?'
