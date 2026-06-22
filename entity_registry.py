@@ -232,19 +232,31 @@ _META_READERS = {
 }
 
 
-def parse_entity_metadata(payload, offset=0):
+def parse_entity_metadata(payload, offset=0, debug_ctx=""):
     """Parse 1.16.5 entity metadata from packet payload.
     Returns (dict of {index: value}, new_offset). Stops at 0xFF."""
     from protocol import rv
+    import sys
     meta = {}
+    start_offset = offset
     while offset < len(payload):
         index = payload[offset]; offset += 1
         if index == 0xFF: break
         tid, offset = rv(payload, offset)
         reader = _META_READERS.get(tid)
         if reader:
-            meta[index], offset = reader(payload, offset)
+            try:
+                meta[index], offset = reader(payload, offset)
+            except Exception as e:
+                ctx = f" [meta idx={index} type={tid}]" if debug_ctx else ""
+                print(f"  [DEBUG] meta parse error{debug_ctx} idx={index} type={tid}: {type(e).__name__}: {e} "
+                      f"near offset={offset} "
+                      f"bytes={payload[max(0,offset-4):offset+8].hex()}", file=sys.stderr)
+                break
         else:
+            ctx = f" [meta idx={index}]" if debug_ctx else ""
+            print(f"  [DEBUG] unknown meta type{debug_ctx} idx={index} tid={tid} "
+                  f"offset={offset} bytes={payload[max(0,offset-4):offset+8].hex()}", file=sys.stderr)
             break
     return meta, offset
 

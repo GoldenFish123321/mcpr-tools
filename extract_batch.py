@@ -64,6 +64,13 @@ if __name__ == '__main__':
 
     stats = Counter()
     total = 0
+    # Debug: per-packet-type error counters (log first 3, then count silently)
+    _dbg_limits = {}
+    def _dbg_once(tag, msg):
+        c = _dbg_limits.get(tag, 0)
+        _dbg_limits[tag] = c + 1
+        if c < 3:
+            print(f"  [DEBUG] {msg}", file=sys.stderr)
     # Biome cache: full chunks store their biomes, partial chunks look up from here.
     biome_cache = {}  # {(cx, cz): [biome_id, ...]}
     entity_state = {} # {entity_id: {'type': int, 'x': float, 'y': float, 'z': float, 'uuid': bytes}}
@@ -98,15 +105,19 @@ if __name__ == '__main__':
                                     vy = struct.unpack('>h', payload[o:o+2])[0]; o += 2
                                     vz = struct.unpack('>h', payload[o:o+2])[0]; o += 2
                                     try:
-                                        meta, _ = parse_entity_metadata(payload, o)
-                                    except Exception:
+                                        meta, _ = parse_entity_metadata(
+                                            payload, o, debug_ctx=f" [eid={eid} type={etype} pid=0x02]")
+                                    except Exception as me:
+                                        print(f"  [DEBUG] meta parse FAIL eid={eid} type={etype}: "
+                                              f"{type(me).__name__}: {me}", file=sys.stderr)
                                         meta = {}
                                     entity_state[eid] = {
                                         'type': etype, 'x': ex, 'y': ey, 'z': ez,
                                         'uuid': uuid_bytes, 'meta': meta,
                                         'yaw': yaw, 'pitch': pitch,
                                     }
-                                except: pass
+                                except Exception as _e:
+                                    _dbg_once('pid_002', f'pid=0x02 parse error: {_e}')
                                 continue
                             elif pid == 0x00:      # Spawn Entity (items, paintings, etc.)
                                 try:
@@ -127,7 +138,8 @@ if __name__ == '__main__':
                                         'yaw': yaw, 'pitch': pitch,
                                         'obj_data': obj_data,
                                     }
-                                except: pass
+                                except Exception as _e:
+                                    _dbg_once('pid_000', f'pid=0x00 parse error: {_e}')
                                 continue
                             elif pid == 0x05:      # Spawn Painting (1.16.5+)
                                 try:
@@ -155,7 +167,8 @@ if __name__ == '__main__':
                                         'motive': motive,
                                         'direction': direction,
                                     }
-                                except: pass
+                                except Exception as _e:
+                                    _dbg_once('pid_005', f'pid=0x05 parse error: {_e}')
                                 continue
                             elif pid == 0x47:      # Entity Equipment
                                 try:
@@ -182,7 +195,8 @@ if __name__ == '__main__':
                                                     equip[slot_id] = None
                                             else:
                                                 equip[slot_id] = None
-                                except: pass
+                                except Exception as _e:
+                                    _dbg_once('pid_047', f'pid=0x47 parse error: {_e}')
                                 continue
                             elif pid == 0x56: # Entity Teleport
                                 try:
@@ -195,7 +209,8 @@ if __name__ == '__main__':
                                         entity_state[eid]['x'] = ex
                                         entity_state[eid]['y'] = ey
                                         entity_state[eid]['z'] = ez
-                                except: pass
+                                except Exception as _e:
+                                    _dbg_once('pid_056', f'pid=0x56 parse error: {_e}')
                                 continue
                             elif pid == 0x36: # Destroy Entities
                                 try:
@@ -204,7 +219,8 @@ if __name__ == '__main__':
                                     for _ in range(count):
                                         eid, o = rv(payload, o)
                                         entity_state.pop(eid, None)
-                                except: pass
+                                except Exception as _e:
+                                    _dbg_once('pid_036', f'pid=0x36 parse error: {_e}')
                                 continue
                             elif pid == 0x44: # Entity Metadata — merge into existing state
                                 try:
@@ -212,11 +228,16 @@ if __name__ == '__main__':
                                     eid, o = rv(payload, o)
                                     if eid in entity_state:
                                         try:
-                                            new_meta, _ = parse_entity_metadata(payload, o)
-                                        except Exception:
+                                            etype = entity_state[eid].get('type', '?')
+                                            new_meta, _ = parse_entity_metadata(
+                                                payload, o, debug_ctx=f" [eid={eid} type={etype} pid=0x44]")
+                                        except Exception as me:
+                                            print(f"  [DEBUG] meta parse FAIL eid={eid}: "
+                                                  f"{type(me).__name__}: {me}", file=sys.stderr)
                                             new_meta = {}
                                         entity_state[eid].setdefault('meta', {}).update(new_meta)
-                                except: pass
+                                except Exception as _e:
+                                    _dbg_once('pid_044', f'pid=0x44 outer error: {_e}')
                                 continue
 
                             if pid != 0x20: continue
@@ -262,7 +283,9 @@ if __name__ == '__main__':
                                 bec,o=rv(payload,o);bes=[]
                                 for ei in range(bec):
                                     try: be,o=rnbt_disk(payload,o)
-                                    except: continue
+                                    except Exception as _e:
+                                        _dbg_once('be_nbt', f'block entity NBT parse error: {_e}')
+                                        continue
                                     if be:
                                         # Ensure sign tile entities have GlowingText (required by 1.16.5)
                                         if hasattr(be, 'get') and str(be.get('id','')) == 'minecraft:sign':
@@ -581,6 +604,10 @@ if __name__ == '__main__':
             except Exception as e:
                 import traceback
                 print(f"    entity injection FAIL chunk({cx},{cz}): {type(e).__name__}: {e}", file=sys.stderr)
+                # Dump the first few failing entities for diagnosis
+                for ei, ent in enumerate(ents_in_chunk):
+                    if ei >= 3: break
+                    print(f"      ent[{ei}] type={ent.get('type')} meta={ent.get('meta',{})}", file=sys.stderr)
                 continue
     print(f"  {injected} entities injected into chunks")
 
@@ -604,7 +631,8 @@ if __name__ == '__main__':
                 lx,lz = int(a), int(b)
                 idx = lx + lz * CS
                 with open(cp,'rb') as cf: chunks[idx] = cf.read()
-            except:
+            except Exception as _e:
+                _dbg_once('mca_read', f'MCA chunk read error {dname}/{cn}: {_e}')
                 mca_skip += 1
                 continue
         if chunks:
