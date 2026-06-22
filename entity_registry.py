@@ -255,7 +255,7 @@ def armor_stand_meta_to_nbt(meta):
     import nbtlib.tag as T
     tags = {}
     # Index 0: status flags — bit 5 = invisible
-    if 0 in meta and isinstance(meta[0], int) and meta[0] & 0x20:
+    if 0 in meta and meta[0] & 0x20:
         tags['Invisible'] = T.Byte(1)
     # Index 2: Optional Chat → CustomName
     if 2 in meta and meta[2] is not None:
@@ -264,7 +264,7 @@ def armor_stand_meta_to_nbt(meta):
     if 3 in meta:
         tags['CustomNameVisible'] = T.Byte(1 if meta[3] else 0)
     # Index 14: armor stand flags
-    if 14 in meta and isinstance(meta[14], int):
+    if 14 in meta:
         f = meta[14]
         if f & 0x01: tags['Small'] = T.Byte(1)
         tags['NoGravity'] = T.Byte(0 if (f & 0x02) else 1)  # inverted
@@ -274,12 +274,8 @@ def armor_stand_meta_to_nbt(meta):
     POSE_KEYS = ['Head', 'Body', 'LeftArm', 'RightArm', 'LeftLeg', 'RightLeg']
     pose_parts = {}
     for idx, key in enumerate(POSE_KEYS):
-        val = meta.get(idx + 16)
-        if val is not None and hasattr(val, '__iter__') and not isinstance(val, str):
-            try:
-                pose_parts[key] = T.List[T.Float]([T.Float(v) for v in val])
-            except (TypeError, ValueError):
-                pass
+        if idx + 16 in meta:
+            pose_parts[key] = T.List[T.Float]([T.Float(v) for v in meta[idx + 16]])
     if pose_parts:
         pc = T.Compound()
         for k, v in pose_parts.items():
@@ -304,11 +300,8 @@ VILLAGER_PROFESSIONS = {
 def villager_meta_to_nbt(meta):
     """Convert villager metadata (index 16: VillagerData) to NBT."""
     if 16 not in meta: return {}
-    vd_raw = meta[16]
-    if not isinstance(vd_raw, (tuple, list)) or len(vd_raw) < 3:
-        return {}
     import nbtlib.tag as T
-    vtype_id, profession_id, level = vd_raw[:3]
+    vtype_id, profession_id, level = meta[16]
     vd = T.Compound()
     vd["level"] = T.Int(level)
     vd["profession"] = T.String(
@@ -325,7 +318,7 @@ def entity_meta_to_nbt(entity_type, meta):
     import nbtlib.tag as T
     tags = {}
     # Index 0: status flags — bit 5 = invisible (for ALL entities)
-    if 0 in meta and isinstance(meta[0], int) and meta[0] & 0x20:
+    if 0 in meta and meta[0] & 0x20:
         tags['Invisible'] = T.Byte(1)
     # Index 2: Optional Chat → CustomName
     if 2 in meta and meta[2] is not None:
