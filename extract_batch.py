@@ -179,11 +179,11 @@ if __name__ == '__main__':
                                     eid, o = rv(payload, o)
                                     if eid in entity_state:
                                         equip = entity_state[eid].setdefault('equipment', {})
-                                        # Slot: VarInt (0=mainhand, 1=offhand, 2=boots,
-                                        #   3=leggings, 4=chestplate, 5=helmet)
-                                        # Followed by Item (Slot data). Repeats to end of packet.
+                                        # Slot: Byte (0=mainhand, 1=offhand, 2=boots,
+                                        #   3=leggings, 4=chestplate, 5=helmet).
+                                        # Packet loops until end; plugin servers may use slots >5.
                                         while o < len(payload):
-                                            slot_id, o = rv(payload, o)
+                                            slot_id = payload[o]; o += 1
                                             present = payload[o]; o += 1
                                             if present:
                                                 item_id, o = rv(payload, o)
